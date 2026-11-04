@@ -1,0 +1,118 @@
+# ==========================================
+# Android
+# ==========================================
+
+# Build outputs
+/build/
+/*/build/
+/**/build/
+
+# Android packages
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Android generated files
+captures/
+.externalNativeBuild/
+.cxx/
+.navigation/
+obj/
+gen/
+
+# Local Android SDK configuration
+local.properties
+
+# ==========================================
+# Gradle
+# ==========================================
+
+.gradle/
+.gradle-cache/
+
+# Keep Gradle wrapper
+!gradle/wrapper/gradle-wrapper.jar
+
+# ==========================================
+# Java / Kotlin
+# ==========================================
+
+*.class
+*.log
+hs_err_pid*
+.kotlin/
+
+# ==========================================
+# Android Studio / IntelliJ IDEA
+# ==========================================
+
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# ==========================================
+# Signing & secrets
+# ==========================================
+
+*.jks
+*.keystore
+.signing/
+
+.env
+.env.*
+!.env.example
+
+# ==========================================
+# Firebase (optional)
+# ==========================================
+
+# Uncomment if Firebase configuration
+# should not be stored in Git
+# google-services.json
+
+# ==========================================
+# OS generated files
+# ==========================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+*.stackdump
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+
+# ==========================================
+# Temporary files
+# ==========================================
+
+*.swp
+*.swo
+*.tmp
+*.bak
+
+# ==========================================
+# Optional project-specific files
+# ==========================================
+
+# Uncomment only if these files are personal
+# and should not be shared with the team:
+# AGENT.md
+# TASKS.md
