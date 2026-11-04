@@ -1,6 +1,8 @@
 package com.example.musicplayer.di
 
 import com.example.musicplayer.data.repository.FolderRepositoryImpl
+import com.example.musicplayer.data.repository.TrackRepository
+import com.example.musicplayer.data.repository.TrackRepositoryImpl
 import com.example.musicplayer.domain.repository.FolderRepository
 import dagger.Binds
 import dagger.Module
@@ -17,4 +19,10 @@ abstract class RepositoryModule {
     abstract fun bindFolderRepository(
         impl: FolderRepositoryImpl,
     ): FolderRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindTrackRepository(
+        impl: TrackRepositoryImpl,
+    ): TrackRepository
 }

@@ -398,7 +398,7 @@ Do not implement artwork caching or the final artwork UI yet.
 
 ## Task 07 --- Add Room database and library entities
 
-**Status:** TODO\
+**Status:** DONE\
 **Priority:** Critical\
 **Depends on:** Task 06
 
@@ -408,28 +408,28 @@ Persist the indexed music library locally.
 
 ### Work
 
--   [ ] Add a Room database.
--   [ ] Create `TrackEntity` with at least:
-    -   [ ] URI as a stable key
-    -   [ ] Title
-    -   [ ] Artist
-    -   [ ] Album
-    -   [ ] Duration
-    -   [ ] Optional album ID
-    -   [ ] Optional artwork reference
-    -   [ ] Parent folder URI
-    -   [ ] File size where available
-    -   [ ] Modified time where available
-    -   [ ] Indexed/added timestamp if needed for sorting
--   [ ] Create `MusicFolderEntity` if folder records need to be queried
+-   [x] Add a Room database.
+-   [x] Create `TrackEntity` with at least:
+    -   [x] URI as a stable key
+    -   [x] Title
+    -   [x] Artist
+    -   [x] Album
+    -   [x] Duration
+    -   [x] Optional album ID
+    -   [x] Optional artwork reference
+    -   [x] Parent folder URI
+    -   [x] File size where available
+    -   [x] Modified time where available
+    -   [x] Indexed/added timestamp if needed for sorting
+-   [x] Create `MusicFolderEntity` if folder records need to be queried
     from Room; otherwise keep the selected folder in DataStore
     initially.
--   [ ] Create the required DAO methods for insert/update, delete,
+-   [x] Create the required DAO methods for insert/update, delete,
     observe all tracks, and query by folder.
--   [ ] Add indexes for fields used by common queries where justified.
--   [ ] Add database dependency injection.
--   [ ] Keep database access off the main thread.
--   [ ] Add a simple repository implementation boundary.
+-   [x] Add indexes for fields used by common queries where justified.
+-   [x] Add database dependency injection.
+-   [x] Keep database access off the main thread.
+-   [x] Add a simple repository implementation boundary.
 
 ### Acceptance criteria
 
@@ -443,6 +443,51 @@ Persist the indexed music library locally.
 
 Do not create a separate Album table unless the current requirements
 demonstrate a need.
+
+### Key decisions
+
+-   `TrackEntity` lives in `data/database` with `uri` as the primary key.
+    `TrackDao` uses `@Upsert`, so rescanning an existing URI updates the
+    row instead of inserting a duplicate. Single-row `@Upsert` and
+    `@Delete` are available for future repository logic.
+-   `MusicFolderEntity` was not added. Task 04 already persists the
+    selected folder in DataStore, and every track stores `folderUri`,
+    which is enough to query or diff a folder during rescanning.
+-   Artwork is stored as an optional `artworkUri` reference rather than a
+    BLOB so track-list queries never load artwork bytes. Populating that
+    reference (local artwork file storage) belongs to the scan-to-database
+    wiring in Task 08; this task does not add artwork caching.
+-   `TrackEntityMapper` maps a `DiscoveredAudioFile` plus its
+    `TrackMetadata` into a row. `dateAdded` is supplied by the caller so
+    Task 08 can preserve the original first-indexed time on rescan.
+-   Indices cover `folderUri` (per-folder scans and diffing) and
+    `title`/`artist`/`album`/`dateAdded` (the required work-list sort
+    orders). A separate album table was deliberately not created.
+-   `TrackRepository`/`TrackRepositoryImpl` form a data-layer boundary
+    that currently exposes `TrackEntity`. The domain `Track` model and
+    its mapping arrive with Task 09, the task that defines the library UI.
+-   Room suspend queries and Flow queries run on Room's own background
+    executor; no DAO call is made on the main thread. The repository also
+    skips empty upsert/delete batches.
+-   The database is provided by Hilt in `DatabaseModule` and the
+    repository is bound in `RepositoryModule`.
+-   Schema export is enabled through KSP
+    (`room.schemaLocation = app/schemas`) so future schema changes can use
+    explicit migrations instead of destructive migration.
+
+### Validation performed
+
+-   `./gradlew assembleDebug testDebugUnitTest` -> BUILD SUCCESSFUL
+    (14 unit tests passed).
+-   `./gradlew connectedDebugAndroidTest` on a physical Infinix X6850
+    running Android 16 -> BUILD SUCCESSFUL, 10 instrumented tests passed.
+    The 6 new `TrackDaoTest` cases verify full-field round trip, upsert
+    deduplication by URI, folder-scoped queries/deletes, delete-by-folder,
+    file-backed persistence across a close/reopen, and
+    metadata-to-entity mapping.
+-   Room exported
+    `app/schemas/com.example.musicplayer.data.database.AppDatabase/1.json`.
+    The database uses version 1 with no destructive migration fallback.
 
 ------------------------------------------------------------------------
 
