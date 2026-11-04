@@ -28,7 +28,7 @@ import javax.inject.Singleton
 class MetadataExtractor @Inject constructor(
     @ApplicationContext private val context: Context,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-) {
+) : MetadataExtraction {
     /**
      * Reads metadata for a single file off the main thread.
      */
@@ -40,7 +40,7 @@ class MetadataExtractor @Inject constructor(
      *
      * A failure for one file does not stop extraction for the others.
      */
-    suspend fun extractAll(files: List<DiscoveredAudioFile>): List<MetadataResult> =
+    override suspend fun extractAll(files: List<DiscoveredAudioFile>): List<MetadataResult> =
         withContext(ioDispatcher) { extractAllBlocking(files) { MediaMetadataRetriever() } }
 
     /**

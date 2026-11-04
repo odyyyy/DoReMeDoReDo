@@ -1,5 +1,10 @@
 package com.example.musicplayer.di
 
+import com.example.musicplayer.data.scanner.AudioFileDiscovery
+import com.example.musicplayer.data.scanner.MetadataExtraction
+import com.example.musicplayer.data.scanner.MetadataExtractor
+import com.example.musicplayer.data.scanner.MusicScanner
+import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -10,9 +15,20 @@ import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
-object ScannerModule {
+abstract class ScannerModule {
 
-    @Provides
+    @Binds
     @Singleton
-    fun provideIoDispatcher(): CoroutineDispatcher = Dispatchers.IO
+    abstract fun bindAudioFileDiscovery(impl: MusicScanner): AudioFileDiscovery
+
+    @Binds
+    @Singleton
+    abstract fun bindMetadataExtraction(impl: MetadataExtractor): MetadataExtraction
+
+    companion object {
+
+        @Provides
+        @Singleton
+        fun provideIoDispatcher(): CoroutineDispatcher = Dispatchers.IO
+    }
 }

@@ -28,6 +28,8 @@ class TrackRepositoryImpl @Inject constructor(
     override suspend fun getUrisByFolder(folderUri: String): List<String> =
         trackDao.getUrisByFolder(folderUri)
 
+    override suspend fun getAll(): List<TrackEntity> = trackDao.getAll()
+
     override suspend fun count(): Int = trackDao.count()
 
     override suspend fun upsertAll(tracks: List<TrackEntity>) {

@@ -36,6 +36,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.musicplayer.data.database.TrackEntity
+import com.example.musicplayer.data.scanner.ScanPersistence
 import com.example.musicplayer.domain.model.DiscoveredAudioFile
 import com.example.musicplayer.presentation.folders.FolderSelectionContent
 import java.util.Locale
@@ -51,6 +53,7 @@ fun LibraryScreen(
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val indexedTracks by viewModel.indexedTracks.collectAsStateWithLifecycle()
 
     val folderPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
@@ -88,16 +91,20 @@ fun LibraryScreen(
                 )
             }
 
-            is LibraryUiState.ScanFailed -> {
-                ScanFailedContent(
-                    folderName = state.folder.displayName,
-                    errorMessage = state.message,
-                    onRetryClicked = { viewModel.rescanCurrentFolder() },
-                    onChangeFolderClicked = { folderPickerLauncher.launch(null) },
-                )
-            }
-
             is LibraryUiState.Ready -> {
+                val failure = state.failure
+                if (failure != null) {
+                    ScanFailedContent(
+                        folderName = state.folder.displayName,
+                        errorMessage = failure.message,
+                        onRetryClicked = { viewModel.rescanCurrentFolder() },
+                        onChangeFolderClicked = { folderPickerLauncher.launch(null) },
+                    )
+                    return@Box
+                }
+
+                val scanResult = state.scanResult
+                val trackedIndex = indexedTracks
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -106,41 +113,69 @@ fun LibraryScreen(
                     FolderHeaderCard(
                         folderName = state.folder.displayName,
                         isScanning = state.isScanning,
-                        discoveredCount = state.scanResult?.audioFiles?.size,
-                        totalFilesScanned = state.scanResult?.totalFilesScanned,
-                        durationMs = state.scanResult?.durationMs,
+                        discoveredCount = scanResult?.audioFiles?.size,
+                        totalFilesScanned = scanResult?.totalFilesScanned,
+                        durationMs = scanResult?.durationMs,
+                        persistence = state.persistence,
+                        indexedCount = trackedIndex.size,
                         onRescanClicked = { viewModel.rescanCurrentFolder() },
                         onChangeFolderClicked = { folderPickerLauncher.launch(null) },
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    if (state.isScanning && state.scanResult == null) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = "Scanning music folder...",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                    when {
+                        // A completed scan from this session: show what it found.
+                        scanResult != null && scanResult.audioFiles.isEmpty() -> {
+                            EmptyScanResultContent(
+                                onRescanClicked = { viewModel.rescanCurrentFolder() },
+                            )
+                        }
+
+                        scanResult != null -> {
+                            DiscoveredAudioList(
+                                audioFiles = scanResult.audioFiles,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+
+                        // Database-first startup (or a running rescan): the
+                        // library comes straight from Room, so it stays visible
+                        // and updates automatically after scan writes.
+                        trackedIndex.isNotEmpty() -> {
+                            IndexedTrackList(
+                                tracks = trackedIndex,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+
+                        // First-ever scan of this folder is still running.
+                        state.isScanning -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text(
+                                        text = "Scanning music folder...",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                             }
                         }
-                    } else if (state.scanResult != null && state.scanResult.audioFiles.isEmpty()) {
-                        EmptyScanResultContent(
-                            onRescanClicked = { viewModel.rescanCurrentFolder() },
-                        )
-                    } else if (state.scanResult != null) {
-                        DiscoveredAudioList(
-                            audioFiles = state.scanResult.audioFiles,
-                            modifier = Modifier.weight(1f),
-                        )
+
+                        // Indexed marker exists but nothing was ever stored.
+                        else -> {
+                            IndexedTrackList(
+                                tracks = emptyList(),
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
                     }
                 }
             }
@@ -155,6 +190,8 @@ private fun FolderHeaderCard(
     discoveredCount: Int?,
     totalFilesScanned: Int?,
     durationMs: Long?,
+    persistence: ScanPersistence?,
+    indexedCount: Int,
     onRescanClicked: () -> Unit,
     onChangeFolderClicked: () -> Unit,
     modifier: Modifier = Modifier,
@@ -193,12 +230,27 @@ private fun FolderHeaderCard(
                             "Scanning folder..."
                         } else if (discoveredCount != null && totalFilesScanned != null && durationMs != null) {
                             "Found $discoveredCount audio tracks ($totalFilesScanned files scanned in ${durationMs}ms)"
+                        } else if (indexedCount > 0) {
+                            "Library loaded from Room - $indexedCount tracks indexed"
                         } else {
                             "Music folder ready"
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+
+                    if (persistence != null && !isScanning) {
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Text(
+                            text = "Library updated: ${persistence.added} new, " +
+                                "${persistence.updated} updated, " +
+                                "${persistence.unchanged} unchanged, " +
+                                "${persistence.removed} removed",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
 
@@ -328,6 +380,112 @@ private fun ScanFailedContent(
             }
         }
     }
+}
+
+/**
+ * Room-backed view of the indexed library. Rendered whenever there is no
+ * scan result from the current session, so opening the app shows the persisted
+ * library without scanning the filesystem.
+ */
+@Composable
+private fun IndexedTrackList(
+    tracks: List<TrackEntity>,
+    modifier: Modifier = Modifier,
+) {
+    if (tracks.isEmpty()) {
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(
+                text = "No indexed tracks yet",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Press Rescan to index the selected folder.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+        }
+        return
+    }
+
+    LazyColumn(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(
+            items = tracks,
+            key = { it.uri },
+        ) { track ->
+            IndexedTrackItem(track = track)
+        }
+    }
+}
+
+@Composable
+private fun IndexedTrackItem(
+    track: TrackEntity,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = track.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                Text(
+                    text = track.artist,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Text(
+                text = formatDuration(track.durationMs),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+private fun formatDuration(durationMs: Long): String {
+    if (durationMs <= 0L) return "--:--"
+    val totalSeconds = durationMs / 1_000L
+    return String.format(Locale.US, "%d:%02d", totalSeconds / 60L, totalSeconds % 60L)
 }
 
 @Composable

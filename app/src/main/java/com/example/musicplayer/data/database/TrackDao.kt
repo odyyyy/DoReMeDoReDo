@@ -44,6 +44,13 @@ interface TrackDao {
     suspend fun getUrisByFolder(folderUri: String): List<String>
 
     /**
+     * Returns every indexed track. Used to reconcile a completed scan against
+     * what is already stored.
+     */
+    @Query("SELECT * FROM tracks")
+    suspend fun getAll(): List<TrackEntity>
+
+    /**
      * Returns the number of indexed tracks.
      */
     @Query("SELECT COUNT(*) FROM tracks")

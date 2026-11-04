@@ -19,7 +19,7 @@ import javax.inject.Singleton
 class MusicScanner @Inject constructor(
     @ApplicationContext private val context: Context,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-) {
+) : AudioFileDiscovery {
     companion object {
         val SUPPORTED_EXTENSIONS = setOf(
             "mp3", "flac", "wav", "m4a", "aac", "ogg", "opus"
@@ -32,7 +32,7 @@ class MusicScanner @Inject constructor(
      * @param folderUri The SAF tree URI of the folder to scan.
      * @return A [ScanResult.Success] containing discovered audio files, or [ScanResult.Failure] if unreadable.
      */
-    suspend fun scanFolder(folderUri: Uri): ScanResult = withContext(ioDispatcher) {
+    override suspend fun scanFolder(folderUri: Uri): ScanResult = withContext(ioDispatcher) {
         val startTime = System.currentTimeMillis()
 
         val rootDoc = try {

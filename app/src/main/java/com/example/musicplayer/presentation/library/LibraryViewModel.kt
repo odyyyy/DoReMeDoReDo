@@ -3,22 +3,42 @@ package com.example.musicplayer.presentation.library
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.musicplayer.data.database.TrackEntity
+import com.example.musicplayer.data.repository.TrackRepository
 import com.example.musicplayer.data.scanner.ScanResult
+import com.example.musicplayer.data.scanner.ScanState
+import com.example.musicplayer.domain.model.CompletedScan
 import com.example.musicplayer.domain.model.SelectedFolder
+import com.example.musicplayer.domain.repository.ScanStatusRepository
 import com.example.musicplayer.domain.usecase.CheckFolderPermissionUseCase
 import com.example.musicplayer.domain.usecase.GetSelectedFolderUseCase
 import com.example.musicplayer.domain.usecase.ScanMusicFolderUseCase
 import com.example.musicplayer.domain.usecase.SetSelectedFolderUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * ViewModel managing music-folder selection state and audio-file scanning operations.
+ * ViewModel managing music-folder selection state and scan-driven library
+ * persistence.
+ *
+ * The UI state is derived from three persistent/observable sources: the
+ * selected folder (and its permission), the scan coordinator's canonical
+ * in-session state, and the *persisted* "folder indexed" marker. The marker -
+ * not the in-memory scan state - decides whether the folder still needs its
+ * first scan after an app restart.
+ *
+ * A scan is started only when no successful scan is recorded for the selected
+ * folder (first run, or a newly selected folder), or when the user presses
+ * Rescan. Every other startup loads the library from Room, which is observed
+ * through [indexedTracks] and never requires a filesystem traversal.
  */
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
@@ -26,38 +46,126 @@ class LibraryViewModel @Inject constructor(
     private val setSelectedFolderUseCase: SetSelectedFolderUseCase,
     private val checkFolderPermissionUseCase: CheckFolderPermissionUseCase,
     private val scanMusicFolderUseCase: ScanMusicFolderUseCase,
+    private val scanStatusRepository: ScanStatusRepository,
+    trackRepository: TrackRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<LibraryUiState>(LibraryUiState.Loading)
     val uiState: StateFlow<LibraryUiState> = _uiState.asStateFlow()
 
+    private val _indexedTracks = MutableStateFlow<List<TrackEntity>>(emptyList())
+
+    /**
+     * The persisted library, observed straight from Room with a Flow query.
+     * Updates automatically after any scan writes to the database; reading it
+     * never touches the filesystem.
+     */
+    val indexedTracks: StateFlow<List<TrackEntity>> = _indexedTracks.asStateFlow()
+
     init {
-        observeSelectedFolder()
+        observeLibrary()
+        viewModelScope.launch {
+            trackRepository.observeAll().collect { tracks ->
+                _indexedTracks.value = tracks
+            }
+        }
     }
 
-    private fun observeSelectedFolder() {
+    /** Whether the selected folder currently exists and is readable. */
+    private sealed interface FolderAvailability {
+        data object None : FolderAvailability
+        data class Revoked(val folder: SelectedFolder) : FolderAvailability
+        data class Available(val folder: SelectedFolder) : FolderAvailability
+    }
+
+    private fun observeLibrary() {
         viewModelScope.launch {
-            getSelectedFolderUseCase().collectLatest { folder ->
-                if (folder == null) {
-                    _uiState.value = LibraryUiState.NoFolderSelected
-                } else {
-                    val hasAccess = checkFolderPermissionUseCase(folder.uri)
-                    if (!hasAccess) {
-                        _uiState.value = LibraryUiState.FolderAccessRevoked(
-                            folderUri = folder.uri,
-                            displayName = folder.displayName,
-                        )
-                    } else {
-                        val currentState = _uiState.value
-                        if (currentState is LibraryUiState.Ready && currentState.folder.uri == folder.uri) {
-                            // Retain current state if already scanning or completed for this folder
-                        } else {
-                            _uiState.value = LibraryUiState.Ready(folder = folder)
-                            scanFolderInternal(folder)
-                        }
-                    }
+            combine(
+                selectedFolderAvailability(),
+                scanMusicFolderUseCase.scanState,
+                scanStatusRepository.lastCompletedScan,
+            ) { availability, scanState, completedScan ->
+                LibrarySnapshot(availability, scanState, completedScan)
+            }.collectLatest { (availability, scanState, completedScan) ->
+                when (availability) {
+                    // Revoked folders keep their indexed records: only the
+                    // recovery UI changes, nothing is deleted from Room.
+                    is FolderAvailability.None -> _uiState.value = LibraryUiState.NoFolderSelected
+
+                    is FolderAvailability.Revoked -> _uiState.value = LibraryUiState.FolderAccessRevoked(
+                        folderUri = availability.folder.uri,
+                        displayName = availability.folder.displayName,
+                    )
+
+                    is FolderAvailability.Available ->
+                        render(availability.folder, scanState, completedScan)
                 }
             }
+        }
+    }
+
+    private fun selectedFolderAvailability(): Flow<FolderAvailability> =
+        getSelectedFolderUseCase().map { folder ->
+            when {
+                folder == null -> FolderAvailability.None
+                !checkFolderPermissionUseCase(folder.uri) -> FolderAvailability.Revoked(folder)
+                else -> FolderAvailability.Available(folder)
+            }
+        }
+
+    private fun render(
+        folder: SelectedFolder,
+        scanState: ScanState,
+        completedScan: CompletedScan?,
+    ) {
+        // A scan of this folder is running or finished during this session:
+        // mirror the canonical state (covers Rescan and first-run scans).
+        if (scanState.folderUri == folder.uri) {
+            _uiState.value = LibraryUiState.Ready(
+                folder = folder,
+                scanState = scanState,
+                lastScanResult = retainedScanResult(folder),
+            )
+            return
+        }
+
+        // Persisted proof that this folder was already indexed: the library is
+        // loaded from Room, no filesystem scan runs on startup. Rescanning stays
+        // a manual action.
+        if (completedScan?.folderUri == folder.uri) {
+            _uiState.value = LibraryUiState.Ready(
+                folder = folder,
+                scanState = ScanState.Idle,
+                lastScanResult = null,
+            )
+            return
+        }
+
+        // No successful scan exists for this folder (first launch, or a new
+        // folder was selected): perform the initial indexing scan.
+        _uiState.value = LibraryUiState.Ready(
+            folder = folder,
+            scanState = ScanState.Scanning(folder.uri),
+            lastScanResult = null,
+        )
+        startScan(folder)
+    }
+
+    /**
+     * Keeps the previous completed scan visible while a rescan of the same
+     * folder is running; results from another folder are never carried over.
+     */
+    private fun retainedScanResult(folder: SelectedFolder): ScanResult.Success? {
+        val current = _uiState.value as? LibraryUiState.Ready ?: return null
+        if (current.folder.uri != folder.uri) return null
+        return current.scanResult
+    }
+
+    private fun startScan(folder: SelectedFolder) {
+        // Launched on viewModelScope (not inside the state collector) so a
+        // running scan survives further folder/state re-emissions.
+        viewModelScope.launch {
+            scanMusicFolderUseCase(Uri.parse(folder.uri))
         }
     }
 
@@ -71,18 +179,14 @@ class LibraryViewModel @Inject constructor(
                     displayName = uri.lastPathSegment ?: "Selected Folder",
                 )
             }
+            // On success the folder flow re-emits and starts the first scan.
         }
     }
 
+    /** Manual Rescan action: starts a fresh scan of the selected folder. */
     fun rescanCurrentFolder() {
-        val currentState = _uiState.value
-        val folder = when (currentState) {
-            is LibraryUiState.Ready -> currentState.folder
-            is LibraryUiState.ScanFailed -> currentState.folder
-            else -> null
-        } ?: return
-
-        scanFolderInternal(folder)
+        val folder = (_uiState.value as? LibraryUiState.Ready)?.folder ?: return
+        startScan(folder)
     }
 
     fun onClearFolder() {
@@ -92,32 +196,10 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    private fun scanFolderInternal(folder: SelectedFolder) {
-        viewModelScope.launch {
-            val previousScanResult = (_uiState.value as? LibraryUiState.Ready)?.scanResult
-            _uiState.value = LibraryUiState.Ready(
-                folder = folder,
-                isScanning = true,
-                scanResult = previousScanResult,
-            )
-
-            val uri = Uri.parse(folder.uri)
-            when (val result = scanMusicFolderUseCase(uri)) {
-                is ScanResult.Success -> {
-                    _uiState.value = LibraryUiState.Ready(
-                        folder = folder,
-                        isScanning = false,
-                        scanResult = result,
-                    )
-                }
-
-                is ScanResult.Failure -> {
-                    _uiState.value = LibraryUiState.ScanFailed(
-                        folder = folder,
-                        message = result.message,
-                    )
-                }
-            }
-        }
-    }
+    /** One immutable combination of the three inputs that drive the screen. */
+    private data class LibrarySnapshot(
+        val availability: FolderAvailability,
+        val scanState: ScanState,
+        val completedScan: CompletedScan?,
+    )
 }

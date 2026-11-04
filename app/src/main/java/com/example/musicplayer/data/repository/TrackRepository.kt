@@ -32,6 +32,11 @@ interface TrackRepository {
     suspend fun getUrisByFolder(folderUri: String): List<String>
 
     /**
+     * Returns every indexed track, used to reconcile a completed scan.
+     */
+    suspend fun getAll(): List<TrackEntity>
+
+    /**
      * Returns the number of indexed tracks.
      */
     suspend fun count(): Int

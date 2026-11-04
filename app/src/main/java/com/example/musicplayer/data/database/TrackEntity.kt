@@ -51,3 +51,13 @@ data class TrackEntity(
     val lastModified: Long,
     val dateAdded: Long,
 )
+
+/**
+ * True when the file stamped [size] / [modifiedAt] is the same version of the
+ * file this row was indexed from, so its metadata does not need re-reading.
+ *
+ * Providers that report no stamp (both values are `0`) never compare equal, so
+ * those files are re-read on every scan instead of being wrongly skipped.
+ */
+fun TrackEntity.isSameFile(size: Long, modifiedAt: Long): Boolean =
+    fileSize > 0L && lastModified > 0L && fileSize == size && lastModified == modifiedAt
