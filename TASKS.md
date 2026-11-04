@@ -205,7 +205,7 @@ abstractions.
 
 ## Task 04 --- Implement persistent music-folder selection
 
-**Status:** TODO\
+**Status:** DONE\
 **Priority:** Critical\
 **Depends on:** Task 03
 
@@ -216,18 +216,18 @@ across app restarts.
 
 ### Work
 
--   [ ] Add a first-run empty state explaining that a music folder must
+-   [x] Add a first-run empty state explaining that a music folder must
     be selected.
--   [ ] Add a button to open the system document-tree picker.
--   [ ] Use the Activity Result API or equivalent modern Android API.
--   [ ] Request read access and persist the granted URI permission when
+-   [x] Add a button to open the system document-tree picker.
+-   [x] Use the Activity Result API or equivalent modern Android API.
+-   [x] Request read access and persist the granted URI permission when
     supported.
--   [ ] Store the selected folder URI and display name in DataStore.
--   [ ] On app launch, check whether the saved permission is still
+-   [x] Store the selected folder URI and display name in DataStore.
+-   [x] On app launch, check whether the saved permission is still
     available.
--   [ ] If access is unavailable, show a clear recovery state and allow
+-   [x] If access is unavailable, show a clear recovery state and allow
     folder reselection.
--   [ ] Do not request broad storage permissions unless a verified
+-   [x] Do not request broad storage permissions unless a verified
     platform requirement makes them necessary.
 
 ### Acceptance criteria
@@ -241,13 +241,24 @@ across app restarts.
 
 ### Notes
 
-At this stage, selecting a folder does not need to scan or play music.
+Folder preferences are stored in DataStore Preferences and managed via `FolderRepositoryImpl`.
+
+### Key decisions
+
+-   `FolderRepository` persists folder tree URI and display name using DataStore Preferences.
+-   `takePersistableUriPermission` is called when taking folder permission.
+-   `hasValidPermission` checks `persistedUriPermissions` and `DocumentFile.canRead()`. If permission is revoked, UI automatically transitions to `FolderAccessRevoked`.
+
+### Validation performed
+
+-   `./gradlew testDebugUnitTest` -> 4 unit tests passed.
+-   `./gradlew assembleDebug` -> BUILD SUCCESSFUL.
 
 ------------------------------------------------------------------------
 
 ## Task 05 --- Implement audio-file discovery and folder traversal
 
-**Status:** TODO\
+**Status:** DONE\
 **Priority:** Critical\
 **Depends on:** Task 04
 
@@ -258,18 +269,18 @@ accessible subfolders.
 
 ### Work
 
--   [ ] Create a `MusicScanner` responsible for SAF tree traversal.
--   [ ] Traverse nested directories where supported by the document
+-   [x] Create a `MusicScanner` responsible for SAF tree traversal.
+-   [x] Traverse nested directories where supported by the document
     provider.
--   [ ] Identify candidate audio files by MIME type and/or supported
+-   [x] Identify candidate audio files by MIME type and/or supported
     file extension.
--   [ ] Initially recognize MP3, FLAC, WAV, M4A, AAC, OGG, and OPUS.
--   [ ] Avoid treating folders or unrelated documents as audio tracks.
--   [ ] Run scanning off the main thread.
--   [ ] Return a structured scan result containing discovered document
+-   [x] Initially recognize MP3, FLAC, WAV, M4A, AAC, OGG, and OPUS.
+-   [x] Avoid treating folders or unrelated documents as audio tracks.
+-   [x] Run scanning off the main thread.
+-   [x] Return a structured scan result containing discovered document
     URIs and any recoverable errors.
--   [ ] Distinguish a completed scan from a failed or incomplete scan.
--   [ ] Handle inaccessible child folders and provider errors without
+-   [x] Distinguish a completed scan from a failed or incomplete scan.
+-   [x] Handle inaccessible child folders and provider errors without
     crashing.
 
 ### Acceptance criteria
@@ -282,15 +293,25 @@ accessible subfolders.
 
 ### Notes
 
-Do not write database records in this task unless required for a small
-integration test. Keep discovery and persistence responsibilities
-separate.
+Discovery logic operates on `Dispatchers.IO`. Results are returned as `ScanResult.Success` or `ScanResult.Failure`.
+
+### Key decisions
+
+-   `MusicScanner` runs recursive SAF traversal off the main thread (`Dispatchers.IO`) up to a max depth limit of 20 to handle deep directory trees safely.
+-   Audio candidacy matches MIME types (`audio/*`) and supported file extensions (`.mp3`, `.flac`, `.wav`, `.m4a`, `.aac`, `.ogg`, `.opus`).
+-   Subdirectory listing failures are captured as non-fatal warnings in `ScanResult.Success`.
+
+### Validation performed
+
+-   `MusicScannerTest` -> unit tests verifying extension/MIME filtering passed.
+-   `./gradlew testDebugUnitTest` -> 4 tests passed.
+-   `./gradlew assembleDebug` -> BUILD SUCCESSFUL.
 
 ------------------------------------------------------------------------
 
 ## Task 06 --- Extract track metadata and artwork safely
 
-**Status:** TODO\
+**Status:** DONE\
 **Priority:** High\
 **Depends on:** Task 05
 
@@ -300,19 +321,19 @@ Read the metadata required to display tracks and group albums.
 
 ### Work
 
--   [ ] Create a `MetadataExtractor`.
--   [ ] Extract title, artist, album, duration, and available album
+-   [x] Create a `MetadataExtractor`.
+-   [x] Extract title, artist, album, duration, and available album
     identifier.
--   [ ] Extract embedded artwork when available.
--   [ ] Use `MediaMetadataRetriever` or another appropriate supported
+-   [x] Extract embedded artwork when available.
+-   [x] Use `MediaMetadataRetriever` or another appropriate supported
     Android API.
--   [ ] Release retriever resources reliably, including on exceptions.
--   [ ] Provide sensible fallbacks when title, artist, or album metadata
+-   [x] Release retriever resources reliably, including on exceptions.
+-   [x] Provide sensible fallbacks when title, artist, or album metadata
     is missing.
--   [ ] Treat missing artwork as a normal state.
--   [ ] Avoid decoding full-resolution artwork unnecessarily.
--   [ ] Return a typed metadata result for each discovered file.
--   [ ] Record per-file extraction errors without aborting the entire
+-   [x] Treat missing artwork as a normal state.
+-   [x] Avoid decoding full-resolution artwork unnecessarily.
+-   [x] Return a typed metadata result for each discovered file.
+-   [x] Record per-file extraction errors without aborting the entire
     scan.
 
 ### Acceptance criteria
@@ -326,6 +347,52 @@ Read the metadata required to display tracks and group albums.
 ### Notes
 
 Do not implement artwork caching or the final artwork UI yet.
+
+### Key decisions
+
+-   `TrackMetadata` lives in `domain/model` and always exposes resolved,
+    non-null `title`, `artist`, and `album` values. Missing tags fall back
+    to the file name without its extension, `Unknown Artist`, and
+    `Unknown Album`; missing or malformed duration falls back to `0`.
+-   `MetadataResult` is a sealed `Success`/`Failure` per discovered file.
+    `extractAll` maps every file through the same guarded extraction, so
+    one corrupt or inaccessible file produces a `Failure` without
+    aborting the rest of the batch.
+-   `MediaMetadataRetriever.release()` is called in a `finally` block and
+    wrapped so a release failure cannot turn a successful extraction into
+    a failure.
+-   `MediaMetadataRetriever` does not expose a reliable album ID for SAF
+    documents. `albumId` is therefore a stable synthetic key derived from
+    normalized album and artist tags (SHA-256), matching the
+    normalized-album/artist grouping fallback in `AGENT.md`. It is `null`
+    when the file has no album tag.
+-   `METADATA_KEY_ALBUMARTIST` is used when `METADATA_KEY_ARTIST` is
+    absent.
+-   Embedded artwork is decoded with `inJustDecodeBounds`, downsampled
+    with a power-of-two `inSampleSize` to at most 512 px, and re-encoded
+    as JPEG at quality 85. Results larger than 512 KB are dropped.
+    Missing or corrupt artwork resolves to `null` without failing the
+    file.
+-   `extract` and `extractAll` run on `Dispatchers.IO`. The blocking
+    internals are `internal` for focused tests.
+-   Metadata extraction is not yet wired into `ScanResult` or Room;
+    Task 08 will connect it to persistence. No artwork caching or artwork
+    UI was added, per the task notes.
+
+### Validation performed
+
+-   `./gradlew testDebugUnitTest` -> 14 tests passed (4 scanner + 10
+    metadata mapping/fallback tests).
+-   `./gradlew assembleDebug` -> BUILD SUCCESSFUL.
+-   `./gradlew assembleDebugAndroidTest` -> BUILD SUCCESSFUL.
+-   `./gradlew connectedDebugAndroidTest` on
+    `Medium_Phone_API_37.0` (API 37) -> BUILD SUCCESSFUL. Instrumented
+    tests verified real duration extraction from a generated 1-second WAV
+    (reported duration within 900--1100 ms), real ID3v2.3
+    title/artist/album and embedded JPEG artwork extraction (the returned
+    artwork decodes and respects the 512 px bound), fallbacks for absent
+    tags and absent artwork, and that `extractAll` continues after a
+    missing file.
 
 ------------------------------------------------------------------------
 
