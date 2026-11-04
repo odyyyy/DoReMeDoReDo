@@ -493,7 +493,7 @@ demonstrate a need.
 
 ## Task 08 --- Connect scanning to Room and implement safe rescanning
 
-**Status:** TODO\
+**Status:** DONE\
 **Priority:** Critical\
 **Depends on:** Task 07
 
@@ -515,8 +515,8 @@ completed scan.
     fails partway through.
 -   [ ] Prevent overlapping scans of the same folder.
 -   [ ] Expose scan state such as Idle, Scanning, Completed, and Failed.
--   [ ] Add a manual Rescan action to the UI.
--   [ ] Ensure all expensive work runs off the main thread.
+-   [x] Add a manual Rescan action to the UI.
+-   [x] Ensure all expensive work runs off the main thread.
 
 ### Acceptance criteria
 
@@ -526,6 +526,167 @@ completed scan.
 -   Changed metadata is updated.
 -   Removed files are removed after a successful complete scan.
 -   Failed or incomplete scans do not wipe the library.
+
+### Key decisions
+
+-   `ScanCoordinator` (`data/scanner`) owns the pipeline: traversal →
+    metadata extraction → Room reconciliation. It exposes
+    `scanState: StateFlow<ScanState>` (Idle / Scanning / Completed /
+    Failed) plus `scanFolder()` returning `ScanOutcome` (`Executed` or
+    `Skipped`).
+-   The work item "create or complete `MusicRepository`" is fulfilled by
+    the existing `TrackRepository` / `TrackRepositoryImpl` boundary from
+    Task 07; it gained `getAll()` (new DAO query) which reconciliation
+    uses. A second, overlapping repository was deliberately not created.
+-   Nothing is written before traversal returns `ScanResult.Success`, and
+    deletions always run after the upserts. A traversal failure or a
+    database exception is reported as `Failed` with the library intact,
+    so a failed/incomplete scan can never wipe records.
+-   A successful scan reconciles the whole library with the scan result
+    (the app stores exactly one selected folder), so rows whose files
+    disappeared are removed and rows under new URIs are added.
+-   Change detection is `TrackEntity.isSameFile(size, modifiedAt)`:
+    identical size and modified time means the row is left untouched and
+    no metadata is re-read. Unreported stamps (`0`) never match, so such
+    files are re-read instead of wrongly skipped.
+-   Metadata extraction only runs for new or changed files. Updates keep
+    the original `dateAdded` and any existing `artworkUri`. A failed read
+    keeps the already-indexed row; a failed read of a *new* file stores a
+    fallback row (file-name title, Unknown Artist/Album, duration 0) so
+    the file stays visible.
+-   Overlapping scans are prevented with `Mutex.tryLock()`: a second
+    request returns `Skipped` instead of stacking behind the running one.
+-   Narrow `AudioFileDiscovery` and `MetadataExtraction` interfaces are
+    implemented by `MusicScanner` / `MetadataExtractor` and bound with
+    `@Binds` in `ScannerModule`, so the orchestration can be tested with
+    fakes against a real in-memory Room database.
+-   `LibraryViewModel` derives UI state from a single `combine` of
+    (selected folder + permission) and the canonical `scanState`. A scan
+    is started only when no scan belongs to the selected folder, so
+    ViewModel recreation or rotation no longer triggers a redundant
+    rescan (the coordinator is a process-wide singleton).
+-   `LibraryUiState.Ready` now carries `scanState` (with `ScanFailed`
+    folded in as `ScanState.Failed`, keeping the previous result visible
+    during a rescan through `lastScanResult`). The manual Rescan action
+    was retained (header button, empty state, Retry on the failure
+    screen), and the header now reports
+    "Library updated: N new, N updated, N unchanged, N removed" after
+    each completed scan.
+
+### Validation performed
+
+-   `./gradlew testDebugUnitTest` -> 18 tests passed (4 new
+    `TrackEntityTest` cases for size/modified change detection).
+-   `./gradlew assembleDebug assembleDebugAndroidTest` -> BUILD
+    SUCCESSFUL (KSP/Hilt tasks executed).
+-   `./gradlew connectedDebugAndroidTest` on `Medium_Phone_API_37.0`
+    (API 37) -> 17 tests passed, including the 7 new
+    `ScanCoordinatorTest` cases: first scan populates the database;
+    unchanged rescan creates no duplicates and performs zero metadata
+    reads; added/changed/removed files reconcile with `dateAdded`
+    preserved; a failed traversal keeps the library and reports `Failed`;
+    metadata failures keep indexed rows and add a fallback row for new
+    files; a persistence failure reports `Failed` without wiping rows;
+    overlapping scans are skipped.
+-   Manual end-to-end run on the emulator through the real SAF picker:
+    seeded `/sdcard/Music` with WAV files including a nested
+    subdirectory (non-audio file ignored). First scan -> "Found 2 audio
+    tracks" + "Library updated: 2 new"; repeat scan -> "0 new,
+    0 updated, 2 unchanged, 0 removed"; adding a file -> "1 new";
+    deleting a file -> "1 removed"; renaming the containing folder (new
+    URIs) -> old rows removed, new added; making the folder unavailable
+    -> "Scan Failed" screen while the database kept both rows (verified
+    by pulling the DB through `run-as`); Retry after restoring the
+    folder -> "2 unchanged" with the original `dateAdded`; cold restart
+    after `force-stop` -> recovered without crash (logcat clean).
+
+### Known limitations
+
+-   Changing the selected folder and completing a scan replaces the
+    tracks indexed from the previous folder; the app models exactly one
+    library folder.
+-   A file whose metadata read fails keeps fallback values until its
+    size or modified stamp changes; per-file extraction failures are
+    surfaced only through the summary counts, not stored.
+-   No scan progress percentage (kept simple, per Task 05 note).
+
+### Additional requirement — Database-first startup (mandatory)
+
+**Goal:** Ensure the music library is loaded from Room on every subsequent app launch without automatically traversing the selected music folder.
+
+#### Work
+
+- [x] Persist successful scan completion for the selected folder across process death and app restarts.
+- [x] Store the indexed folder URI and the last successful scan timestamp.
+- [x] On app startup, load tracks directly from Room using observable Flow queries.
+- [x] Do not automatically run a full filesystem scan when a successful scan already exists for the currently selected folder.
+- [x] Do not treat an in-memory `ScanCoordinator` state as proof that a folder was previously indexed.
+- [x] Run the full scan only when:
+    - No successful scan exists for the selected folder.
+    - The user explicitly presses `RESCAN`.
+    - The selected folder changes and requires initial indexing.
+- [x] Preserve the existing library while a manual rescan is running.
+- [x] Update the persistent scan state only after a successful scan and database reconciliation.
+- [x] Handle revoked folder permissions without deleting existing database records.
+- [x] Keep track and album data observable so the UI updates automatically after database changes.
+
+#### Acceptance criteria
+
+- [x] First launch performs a full scan and saves the discovered library to Room.
+- [x] Closing and reopening the app loads the existing library from Room without traversing music folders.
+- [x] Force-stopping and restarting the app does not trigger an automatic rescan.
+- [x] Opening Tracks or Albums does not trigger filesystem scanning or metadata extraction.
+- [x] Pressing `RESCAN` performs a full folder traversal and reconciles the database.
+- [x] Newly added, modified, and deleted files are reflected after a successful manual rescan.
+- [x] A failed or interrupted scan does not erase the previously indexed library.
+
+#### Out of scope
+
+- Automatic background rescanning.
+- Periodic filesystem polling.
+- Real-time monitoring of file changes.
+- Cloud library synchronization.
+- Re-extracting metadata for unchanged files.
+
+#### Key decisions (database-first startup)
+
+- `ScanStatusRepository` / `ScanStatusRepositoryImpl` persist the marker in
+  the same DataStore as the selected folder (`indexed_folder_uri` +
+  `indexed_scan_at`). It survives process death, and an unreadable or absent
+  marker resolves to `null`, so the app re-indexes instead of assuming the
+  folder is current.
+- `ScanCoordinator` writes the marker only after a successful traversal **and**
+  a completed database reconciliation; a failed or interrupted scan never
+  marks the folder as indexed.
+- `LibraryViewModel.observeLibrary()` combines the selected folder (and its
+  permission), the coordinator's canonical `scanState`, and the persisted
+  marker. A full scan runs only when `scanState.folderUri` matches the folder
+  (a scan already running/finished this session), when the persisted marker
+  lacks this folder, or on an explicit `RESCAN`. The in-memory coordinator
+  state alone is never treated as proof of prior indexing.
+- Track rows are exposed to the UI through `TrackRepository.observeAll()`
+  (`Flow`) as `LibraryViewModel.indexedTracks`, so the screen renders the Room
+  library and updates automatically after scan writes without any filesystem
+  traversal. The Library screen shows the Room-backed list on startup when no
+  scan result exists for the current session, and validates it once Tasks 11
+  (Albums) land. Album grouping is derived from track metadata, so it stays
+  observable through the same Flow.
+- Revoked folder access only changes the UI to `LibraryUiState.FolderAccessRevoked`;
+  no records are deleted, so the library survives until access is restored.
+
+#### Validation performed (database-first startup)
+
+- `./gradlew testDebugUnitTest assembleDebug` -> BUILD SUCCESSFUL; 18 unit
+  tests passed.
+- `./gradlew connectedDebugAndroidTest` on `Medium_Phone_API_37.0` (API 37)
+  -> BUILD SUCCESSFUL; 22 instrumented tests passed, including the 2 new
+  `ScanStatusRepositoryImplTest` cases (`marker_survivesProcessDeath`,
+  `missingOrUnreadableMarker_resolvesToNull`) and the `ScanCoordinatorTest`
+  marker cases (`successfulScan_persistsIndexedFolderMarker`,
+  `failedScan_neverMarksFolderAsIndexed`,
+  `failedTraversalWithoutMarker_keepsLibraryUnmarked`).
+- Fixed a leftover duplicate `init { observeLibrary() }` block in
+  `LibraryViewModel` that collected the library state twice.
 
 ------------------------------------------------------------------------
 
