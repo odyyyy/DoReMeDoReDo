@@ -4,7 +4,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 
-private val MusicPlayerColorScheme = darkColorScheme(
+private val DoReMeDoReDoColorScheme = darkColorScheme(
     primary = Gold,
     onPrimary = OnGold,
     primaryContainer = GoldContainer,
@@ -46,9 +46,9 @@ private val MusicPlayerColorScheme = darkColorScheme(
  * action) so the interface stays minimal and calm.
  */
 @Composable
-fun MusicPlayerTheme(content: @Composable () -> Unit) {
+fun DoReMeDoReDoTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = MusicPlayerColorScheme,
+        colorScheme = DoReMeDoReDoColorScheme,
         typography = Typography,
         content = content,
     )

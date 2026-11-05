@@ -7,4 +7,4 @@ import dagger.hilt.android.HiltAndroidApp
  * Application entry point that bootstraps Hilt dependency injection.
  */
 @HiltAndroidApp
-class MusicPlayerApp : Application()
+class DoReMeDoReDoApp : Application()

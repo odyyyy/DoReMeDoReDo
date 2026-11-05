@@ -8,7 +8,7 @@ import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.musicplayer.player.PlaybackRepeatMode
 import com.example.musicplayer.presentation.player.PlayerUiState
-import com.example.musicplayer.ui.theme.MusicPlayerTheme
+import com.example.musicplayer.ui.theme.DoReMeDoReDoTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -33,7 +33,7 @@ class MiniPlayerTest {
 
     private fun setContent(state: PlayerUiState) {
         composeRule.setContent {
-            MusicPlayerTheme {
+            DoReMeDoReDoTheme {
                 MiniPlayer(
                     state = state,
                     onOpenNowPlaying = { openNowPlayingCount++ },

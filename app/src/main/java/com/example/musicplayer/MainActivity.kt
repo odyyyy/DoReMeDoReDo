@@ -10,7 +10,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import com.example.musicplayer.navigation.AppNavigation
 import com.example.musicplayer.player.PlayerController
-import com.example.musicplayer.ui.theme.MusicPlayerTheme
+import com.example.musicplayer.ui.theme.DoReMeDoReDoTheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -27,7 +27,7 @@ class MainActivity : ComponentActivity() {
         playerController.connect()
         enableEdgeToEdge()
         setContent {
-            MusicPlayerTheme {
+            DoReMeDoReDoTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,

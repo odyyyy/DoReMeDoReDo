@@ -254,7 +254,7 @@ com.example.musicplayer/
     theme/
 
   MainActivity.kt
-  MusicPlayerApp.kt
+  DoReMeDoReDoApp.kt
 ```
 
 Adapt filenames when useful, but keep responsibilities clear.

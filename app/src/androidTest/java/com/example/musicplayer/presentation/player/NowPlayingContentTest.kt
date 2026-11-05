@@ -13,7 +13,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.musicplayer.player.PlaybackRepeatMode
-import com.example.musicplayer.ui.theme.MusicPlayerTheme
+import com.example.musicplayer.ui.theme.DoReMeDoReDoTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -49,7 +49,7 @@ class NowPlayingContentTest {
         progress: PlaybackProgress? = progressState(),
     ) {
         composeRule.setContent {
-            MusicPlayerTheme {
+            DoReMeDoReDoTheme {
                 NowPlayingContent(
                     state = state,
                     progress = { progress },

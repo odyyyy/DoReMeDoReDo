@@ -119,7 +119,7 @@ fun FolderSelectionContent(
 @androidx.compose.ui.tooling.preview.Preview(showBackground = true)
 @Composable
 private fun FolderSelectionContentPreview() {
-    com.example.musicplayer.ui.theme.MusicPlayerTheme {
+    com.example.musicplayer.ui.theme.DoReMeDoReDoTheme {
         FolderSelectionContent(onSelectFolderClicked = {})
     }
 }
