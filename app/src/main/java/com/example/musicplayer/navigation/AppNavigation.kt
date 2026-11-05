@@ -6,16 +6,19 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import com.example.musicplayer.presentation.album.AlbumScreen
 import com.example.musicplayer.presentation.library.LibraryScreen
 
 /**
  * Root navigation host for the application.
  *
  * The shared [Scaffold] is the app-level surface where cross-screen chrome
- * such as the Mini Player will live once playback is implemented.
+ * such as the Mini Player will live.
  */
 @Composable
 fun AppNavigation(modifier: Modifier = Modifier) {
@@ -32,7 +35,22 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             modifier = Modifier.padding(innerPadding),
         ) {
             composable(Routes.LIBRARY) {
-                LibraryScreen()
+                LibraryScreen(
+                    onAlbumSelected = { albumId ->
+                        navController.navigate(Routes.albumDetail(albumId))
+                    },
+                )
+            }
+
+            composable(
+                route = Routes.ALBUM_DETAIL,
+                arguments = listOf(
+                    navArgument("albumId") { type = NavType.StringType },
+                ),
+            ) {
+                AlbumScreen(
+                    onBackClicked = { navController.popBackStack() },
+                )
             }
         }
     }

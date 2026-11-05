@@ -14,6 +14,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -27,6 +30,8 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -43,26 +48,27 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.musicplayer.data.scanner.ScanPersistence
+import com.example.musicplayer.domain.model.Album
 import com.example.musicplayer.domain.model.Track
 import com.example.musicplayer.domain.model.TrackSort
+import com.example.musicplayer.presentation.components.AlbumCard
 import com.example.musicplayer.presentation.components.TrackItem
 import com.example.musicplayer.presentation.folders.FolderSelectionContent
 
 /**
- * Main Library screen: folder selection/scan management plus the Tracks view
- * (searchable, sortable lazy list of the indexed library).
- *
- * The folder/scan lifecycle drives [LibraryUiState]; the track list itself is
- * rendered from [TracksUiState], which is Room-backed and independent of
- * filesystem scanning.
+ * Main Library screen: folder selection/scan management plus the Tracks and
+ * Albums views.
  */
 @Composable
 fun LibraryScreen(
+    onAlbumSelected: (String) -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val selectedTab by viewModel.selectedTab.collectAsStateWithLifecycle()
     val tracksState by viewModel.tracksUiState.collectAsStateWithLifecycle()
+    val albumsState by viewModel.albumsUiState.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val playbackHighlight by viewModel.playbackHighlight.collectAsStateWithLifecycle()
     val playbackError by viewModel.playbackError.collectAsStateWithLifecycle()
@@ -132,7 +138,7 @@ fun LibraryScreen(
                         onChangeFolderClicked = { folderPickerLauncher.launch(null) },
                     )
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     if (playbackError != null) {
                         PlaybackErrorBanner(
@@ -143,18 +149,158 @@ fun LibraryScreen(
                         Spacer(modifier = Modifier.height(8.dp))
                     }
 
-                    TracksSection(
-                        tracksState = tracksState,
-                        searchQuery = searchQuery,
-                        isScanning = state.isScanning,
-                        playbackHighlight = playbackHighlight,
-                        onSearchQueryChange = { viewModel.onSearchQueryChange(it) },
-                        onSortChange = { viewModel.onSortChange(it) },
-                        onTrackSelected = { viewModel.onTrackSelected(it) },
-                        onRetry = { viewModel.retryTracks() },
-                        onRescan = { viewModel.rescanCurrentFolder() },
-                        modifier = Modifier.weight(1f),
+                    LibraryTabRow(
+                        selectedTab = selectedTab,
+                        onTabSelected = { viewModel.onTabSelected(it) },
                     )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    when (selectedTab) {
+                        LibraryTab.TRACKS -> {
+                            TracksSection(
+                                tracksState = tracksState,
+                                searchQuery = searchQuery,
+                                isScanning = state.isScanning,
+                                playbackHighlight = playbackHighlight,
+                                onSearchQueryChange = { viewModel.onSearchQueryChange(it) },
+                                onSortChange = { viewModel.onSortChange(it) },
+                                onTrackSelected = { viewModel.onTrackSelected(it) },
+                                onRetry = { viewModel.retryTracks() },
+                                onRescan = { viewModel.rescanCurrentFolder() },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+
+                        LibraryTab.ALBUMS -> {
+                            AlbumsSection(
+                                albumsState = albumsState,
+                                isScanning = state.isScanning,
+                                onAlbumSelected = { album -> onAlbumSelected(album.id) },
+                                onRescan = { viewModel.rescanCurrentFolder() },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LibraryTabRow(
+    selectedTab: LibraryTab,
+    onTabSelected: (LibraryTab) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    TabRow(
+        selectedTabIndex = selectedTab.ordinal,
+        modifier = modifier.fillMaxWidth(),
+        containerColor = MaterialTheme.colorScheme.background,
+        contentColor = MaterialTheme.colorScheme.primary,
+    ) {
+        LibraryTab.entries.forEach { tab ->
+            Tab(
+                selected = selectedTab == tab,
+                onClick = { onTabSelected(tab) },
+                text = {
+                    Text(
+                        text = tab.label,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = if (selectedTab == tab) FontWeight.Bold else FontWeight.Normal,
+                    )
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun AlbumsSection(
+    albumsState: AlbumsUiState,
+    isScanning: Boolean,
+    onAlbumSelected: (Album) -> Unit,
+    onRescan: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    when (albumsState) {
+        is AlbumsUiState.Loading -> {
+            CenteredStatus(
+                message = "Loading albums...",
+                modifier = modifier,
+            )
+        }
+
+        is AlbumsUiState.Error -> {
+            CenteredStatus(
+                message = albumsState.message,
+                modifier = modifier,
+            )
+        }
+
+        is AlbumsUiState.Ready -> {
+            when {
+                albumsState.totalAlbums == 0 && isScanning -> {
+                    CenteredStatus(
+                        message = "Scanning music folder...",
+                        modifier = modifier,
+                    )
+                }
+
+                albumsState.totalAlbums == 0 -> {
+                    NoTracksFoundContent(
+                        onRescanClicked = onRescan,
+                        modifier = modifier,
+                    )
+                }
+
+                else -> {
+                    Column(modifier = modifier.fillMaxSize()) {
+                        Text(
+                            text = if (albumsState.isFiltered) {
+                                "${albumsState.albums.size} of ${albumsState.totalAlbums} albums"
+                            } else {
+                                "${albumsState.totalAlbums} albums"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        if (albumsState.albums.isEmpty()) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = "No matching albums",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        } else {
+                            LazyVerticalGrid(
+                                columns = GridCells.Adaptive(minSize = 150.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                items(
+                                    items = albumsState.albums,
+                                    key = { it.id },
+                                ) { album ->
+                                    AlbumCard(
+                                        album = album,
+                                        onClick = { onAlbumSelected(album) },
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

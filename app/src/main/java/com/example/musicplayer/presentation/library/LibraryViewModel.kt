@@ -11,6 +11,7 @@ import com.example.musicplayer.domain.model.Track
 import com.example.musicplayer.domain.model.TrackSort
 import com.example.musicplayer.domain.repository.ScanStatusRepository
 import com.example.musicplayer.domain.usecase.CheckFolderPermissionUseCase
+import com.example.musicplayer.domain.usecase.GetAlbumsUseCase
 import com.example.musicplayer.domain.usecase.GetSelectedFolderUseCase
 import com.example.musicplayer.domain.usecase.GetTracksUseCase
 import com.example.musicplayer.domain.usecase.ScanMusicFolderUseCase
@@ -32,20 +33,8 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * ViewModel managing folder selection, scan-driven library persistence, and
- * the Tracks list (search + sorting).
- *
- * Folder/scan state is derived from three persistent/observable sources: the
- * selected folder (and its permission), the scan coordinator's canonical
- * in-session state, and the *persisted* "folder indexed" marker. The marker -
- * not the in-memory scan state - decides whether the folder still needs its
- * first scan after an app restart. A scan runs only when no successful scan is
- * recorded for the selected folder (first run/new folder) or when the user
- * presses Rescan; every other startup loads the library from Room.
- *
- * The Tracks list is a separate, immutable [TracksUiState] stream built from
- * the Room-backed [GetTracksUseCase], the debounced search input, and the
- * selected [TrackSort]. Filtering and sorting happen off the main thread.
+ * ViewModel managing folder selection, scan-driven library persistence, the
+ * Tracks view, and the Albums view.
  */
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
@@ -55,6 +44,7 @@ class LibraryViewModel @Inject constructor(
     private val scanMusicFolderUseCase: ScanMusicFolderUseCase,
     private val scanStatusRepository: ScanStatusRepository,
     private val getTracksUseCase: GetTracksUseCase,
+    private val getAlbumsUseCase: GetAlbumsUseCase,
     private val playerController: PlayerController,
 ) : ViewModel() {
 
@@ -63,19 +53,46 @@ class LibraryViewModel @Inject constructor(
     /** Folder/scan lifecycle state of the Library screen. */
     val uiState: StateFlow<LibraryUiState> = _uiState.asStateFlow()
 
-    private val _tracksUiState = MutableStateFlow<TracksUiState>(TracksUiState.Loading)
+    private val _selectedTab = MutableStateFlow(LibraryTab.TRACKS)
 
-    /**
-     * The Tracks list: Room library filtered by the (debounced) search query
-     * and ordered by the active sort. Updates automatically after scan writes
-     * and never touches the filesystem.
-     */
-    val tracksUiState: StateFlow<TracksUiState> = _tracksUiState.asStateFlow()
+    val selectedTab: StateFlow<LibraryTab> = _selectedTab.asStateFlow()
 
     /** Immediate search input for the text field; filtering uses a debounced copy. */
     private val _searchQuery = MutableStateFlow("")
 
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    private val _tracksUiState = MutableStateFlow<TracksUiState>(TracksUiState.Loading)
+
+    val tracksUiState: StateFlow<TracksUiState> = _tracksUiState.asStateFlow()
+
+    val albumsUiState: StateFlow<AlbumsUiState> = combine(
+        getAlbumsUseCase(),
+        _searchQuery,
+    ) { albums, query ->
+        val needle = query.trim().lowercase()
+        val filtered = if (needle.isEmpty()) {
+            albums
+        } else {
+            albums.filter { album ->
+                album.title.lowercase().contains(needle) ||
+                    album.artist.lowercase().contains(needle)
+            }
+        }
+        AlbumsUiState.Ready(
+            albums = filtered,
+            totalAlbums = albums.size,
+            isFiltered = needle.isNotEmpty(),
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = AlbumsUiState.Loading,
+    )
+
+    fun onTabSelected(tab: LibraryTab) {
+        _selectedTab.value = tab
+    }
 
     /**
      * Current track + play/pause state for the row highlight. Derived without
