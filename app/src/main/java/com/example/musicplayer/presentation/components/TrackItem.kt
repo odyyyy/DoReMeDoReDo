@@ -1,6 +1,7 @@
 package com.example.musicplayer.presentation.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -27,8 +28,8 @@ import java.util.Locale
 /**
  * One row of the Tracks list: artwork placeholder, title, artist, duration.
  *
- * Rows are intentionally not clickable yet - playback is introduced in a later
- * task, and no fake click handling belongs here.
+ * Tapping the row starts playback from that track. The currently loaded track
+ * is highlighted; [isPlaying] distinguishes "playing" from "paused".
  *
  * Artwork: real artwork renders only once artwork caching (Task 19) starts
  * populating `Track.artworkUri`. Until then a neutral placeholder tile is
@@ -37,12 +38,16 @@ import java.util.Locale
 @Composable
 fun TrackItem(
     track: Track,
+    isCurrent: Boolean = false,
+    isPlaying: Boolean = false,
+    onClick: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 56.dp)
+            .clickable(onClick = onClick)
             .padding(horizontal = 4.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -55,7 +60,11 @@ fun TrackItem(
                 text = track.title,
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = if (isCurrent) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -68,6 +77,15 @@ fun TrackItem(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        if (isCurrent) {
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = if (isPlaying) "▶" else "❚❚",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
             )
         }
 

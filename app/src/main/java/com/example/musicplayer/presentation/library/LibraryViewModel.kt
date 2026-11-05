@@ -7,6 +7,7 @@ import com.example.musicplayer.data.scanner.ScanResult
 import com.example.musicplayer.data.scanner.ScanState
 import com.example.musicplayer.domain.model.CompletedScan
 import com.example.musicplayer.domain.model.SelectedFolder
+import com.example.musicplayer.domain.model.Track
 import com.example.musicplayer.domain.model.TrackSort
 import com.example.musicplayer.domain.repository.ScanStatusRepository
 import com.example.musicplayer.domain.usecase.CheckFolderPermissionUseCase
@@ -14,15 +15,19 @@ import com.example.musicplayer.domain.usecase.GetSelectedFolderUseCase
 import com.example.musicplayer.domain.usecase.GetTracksUseCase
 import com.example.musicplayer.domain.usecase.ScanMusicFolderUseCase
 import com.example.musicplayer.domain.usecase.SetSelectedFolderUseCase
+import com.example.musicplayer.player.PlayerController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -50,6 +55,7 @@ class LibraryViewModel @Inject constructor(
     private val scanMusicFolderUseCase: ScanMusicFolderUseCase,
     private val scanStatusRepository: ScanStatusRepository,
     private val getTracksUseCase: GetTracksUseCase,
+    private val playerController: PlayerController,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<LibraryUiState>(LibraryUiState.Loading)
@@ -70,6 +76,33 @@ class LibraryViewModel @Inject constructor(
     private val _searchQuery = MutableStateFlow("")
 
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    /**
+     * Current track + play/pause state for the row highlight. Derived without
+     * position so the list does not recompose on every playback tick.
+     */
+    val playbackHighlight: StateFlow<PlaybackHighlight?> = playerController.state
+        .map { playback ->
+            playback.currentTrack?.let { track ->
+                PlaybackHighlight(trackUri = track.uri, isPlaying = playback.isPlaying)
+            }
+        }
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = null,
+        )
+
+    /** User-facing playback failure, or `null` when playback is healthy. */
+    val playbackError: StateFlow<String?> = playerController.state
+        .map { it.playbackError }
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = null,
+        )
 
     private val _trackSort = MutableStateFlow(TrackSort.TITLE)
 
@@ -138,6 +171,22 @@ class LibraryViewModel @Inject constructor(
 
     fun onSortChange(sort: TrackSort) {
         _trackSort.value = sort
+    }
+
+    /**
+     * Starts playback from [track] using the currently displayed, filtered and
+     * sorted list as the player queue.
+     */
+    fun onTrackSelected(track: Track) {
+        val tracks = (_tracksUiState.value as? TracksUiState.Ready)?.tracks ?: return
+        val index = tracks.indexOfFirst { it.uri == track.uri }
+        if (index < 0) return
+        playerController.playQueue(tracks, index)
+    }
+
+    /** Dismisses the last playback failure message. */
+    fun dismissPlaybackError() {
+        playerController.dismissPlaybackError()
     }
 
     /** Restarts the library observation after [TracksUiState.Error]. */

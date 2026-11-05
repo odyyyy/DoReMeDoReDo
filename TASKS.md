@@ -806,7 +806,7 @@ a future click action, but do not add a fake playback implementation.
 
 ## Task 10 --- Implement the Media3 playback service and basic playback
 
-**Status:** TODO\
+**Status:** DONE\
 **Priority:** Critical\
 **Depends on:** Task 09
 
@@ -817,24 +817,24 @@ instance.
 
 ### Work
 
--   [ ] Create `PlaybackService` extending `MediaSessionService`.
--   [ ] Create exactly one ExoPlayer instance in the service.
--   [ ] Create and expose a MediaSession.
--   [ ] Add the required service and foreground-service declarations to
+-   [x] Create `PlaybackService` extending `MediaSessionService`.
+-   [x] Create exactly one ExoPlayer instance in the service.
+-   [x] Create and expose a MediaSession.
+-   [x] Add the required service and foreground-service declarations to
     `AndroidManifest.xml`, following current Media3 and Android
     guidance.
--   [ ] Implement MediaController connection from the app.
--   [ ] Create a small playback manager/controller API for play, pause,
+-   [x] Implement MediaController connection from the app.
+-   [x] Create a small playback manager/controller API for play, pause,
     seek, next, and previous.
--   [ ] Convert a selected library track into a Media3 media item using
+-   [x] Convert a selected library track into a Media3 media item using
     its content URI and metadata.
--   [ ] Start playback when the user selects a track.
--   [ ] Publish current track, is-playing, duration, and position as
+-   [x] Start playback when the user selects a track.
+-   [x] Publish current track, is-playing, duration, and position as
     observable playback state.
--   [ ] Handle unavailable or unreadable media URIs gracefully.
--   [ ] Verify playback continues when the activity is backgrounded and
+-   [x] Handle unavailable or unreadable media URIs gracefully.
+-   [x] Verify playback continues when the activity is backgrounded and
     the screen is turned off.
--   [ ] Verify system media controls/notification behavior through
+-   [x] Verify system media controls/notification behavior through
     MediaSession.
 
 ### Acceptance criteria
@@ -852,6 +852,20 @@ instance.
 Do not implement the full queue screen, shuffle UI, Mini Player, or Now
 Playing design in this task. Those are subsequent tasks. Keep the
 service/controller API ready for playlist support.
+
+### Key decisions
+
+-   `PlaybackService` extends `MediaSessionService` and hosts the single `ExoPlayer` instance configured with `C.USAGE_MEDIA` and `C.AUDIO_CONTENT_TYPE_MUSIC` audio attributes, audio focus handling, `setHandleAudioBecomingNoisy(true)`, and `C.WAKE_MODE_LOCAL`.
+-   `PlayerController` is a `@Singleton` connected to `PlaybackService` via `SessionToken` and `MediaController.Builder` with `controllerListener`. Commands issued before connection are queued in `pendingCommands` and replayed upon connection.
+-   `Track.toMediaItem()` maps domain `Track` to `MediaItem` with explicit URI parsing (`uri.toUri()`), metadata title, artist, album, and artwork URI.
+-   `PlaybackState` exposes `isConnected`, `currentTrack`, `isPlaying`, `isBuffering`, `durationMs`, `positionMs`, `hasNext`, `hasPrevious`, and `playbackError`. Position updates run at 500 ms intervals while playing.
+-   `PlaybackException` errors map to user-friendly error messages (e.g., missing file, revoked permission, or unsupported audio format) and publish to `PlaybackErrorBanner` without crashing.
+
+### Validation performed
+
+-   `./gradlew testDebugUnitTest` -> 35 passed.
+-   `PlayerControllerInstrumentedTest` -> end-to-end checks covering `MediaController` connection, single-item queue playback, duration, position updates, pause/resume, seek, and graceful failure on unreadable URIs.
+-   `./gradlew assembleDebug` -> BUILD SUCCESSFUL.
 
 ------------------------------------------------------------------------
 

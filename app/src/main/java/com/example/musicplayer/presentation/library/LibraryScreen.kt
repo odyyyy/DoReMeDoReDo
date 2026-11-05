@@ -28,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.musicplayer.data.scanner.ScanPersistence
+import com.example.musicplayer.domain.model.Track
 import com.example.musicplayer.domain.model.TrackSort
 import com.example.musicplayer.presentation.components.TrackItem
 import com.example.musicplayer.presentation.folders.FolderSelectionContent
@@ -62,6 +64,8 @@ fun LibraryScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val tracksState by viewModel.tracksUiState.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val playbackHighlight by viewModel.playbackHighlight.collectAsStateWithLifecycle()
+    val playbackError by viewModel.playbackError.collectAsStateWithLifecycle()
 
     val folderPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
@@ -130,12 +134,23 @@ fun LibraryScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
+                    if (playbackError != null) {
+                        PlaybackErrorBanner(
+                            message = playbackError.orEmpty(),
+                            onDismiss = { viewModel.dismissPlaybackError() },
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+
                     TracksSection(
                         tracksState = tracksState,
                         searchQuery = searchQuery,
                         isScanning = state.isScanning,
+                        playbackHighlight = playbackHighlight,
                         onSearchQueryChange = { viewModel.onSearchQueryChange(it) },
                         onSortChange = { viewModel.onSortChange(it) },
+                        onTrackSelected = { viewModel.onTrackSelected(it) },
                         onRetry = { viewModel.retryTracks() },
                         onRescan = { viewModel.rescanCurrentFolder() },
                         modifier = Modifier.weight(1f),
@@ -155,8 +170,10 @@ private fun TracksSection(
     tracksState: TracksUiState,
     searchQuery: String,
     isScanning: Boolean,
+    playbackHighlight: PlaybackHighlight?,
     onSearchQueryChange: (String) -> Unit,
     onSortChange: (TrackSort) -> Unit,
+    onTrackSelected: (Track) -> Unit,
     onRetry: () -> Unit,
     onRescan: () -> Unit,
     modifier: Modifier = Modifier,
@@ -257,12 +274,52 @@ private fun TracksSection(
                                     items = tracksState.tracks,
                                     key = { it.uri },
                                 ) { track ->
-                                    TrackItem(track = track)
+                                    val isCurrent = playbackHighlight?.trackUri == track.uri
+                                    TrackItem(
+                                        track = track,
+                                        isCurrent = isCurrent,
+                                        isPlaying = isCurrent && playbackHighlight?.isPlaying == true,
+                                        onClick = { onTrackSelected(track) },
+                                    )
                                 }
                             }
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/** Inline, dismissible playback failure message. */
+@Composable
+private fun PlaybackErrorBanner(
+    message: String,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 12.dp, top = 4.dp, end = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.weight(1f),
+            )
+
+            TextButton(onClick = onDismiss) {
+                Text("Dismiss")
             }
         }
     }
