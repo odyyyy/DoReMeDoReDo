@@ -20,32 +20,39 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.musicplayer.data.database.TrackEntity
 import com.example.musicplayer.data.scanner.ScanPersistence
-import com.example.musicplayer.domain.model.DiscoveredAudioFile
+import com.example.musicplayer.domain.model.TrackSort
+import com.example.musicplayer.presentation.components.TrackItem
 import com.example.musicplayer.presentation.folders.FolderSelectionContent
-import java.util.Locale
-import kotlin.math.log10
-import kotlin.math.pow
 
 /**
- * Main Library screen handling music-folder selection, traversal scanning, and audio-candidate list presentation.
+ * Main Library screen: folder selection/scan management plus the Tracks view
+ * (searchable, sortable lazy list of the indexed library).
+ *
+ * The folder/scan lifecycle drives [LibraryUiState]; the track list itself is
+ * rendered from [TracksUiState], which is Room-backed and independent of
+ * filesystem scanning.
  */
 @Composable
 fun LibraryScreen(
@@ -53,7 +60,8 @@ fun LibraryScreen(
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val indexedTracks by viewModel.indexedTracks.collectAsStateWithLifecycle()
+    val tracksState by viewModel.tracksUiState.collectAsStateWithLifecycle()
+    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
 
     val folderPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
@@ -103,8 +111,6 @@ fun LibraryScreen(
                     return@Box
                 }
 
-                val scanResult = state.scanResult
-                val trackedIndex = indexedTracks
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -113,72 +119,333 @@ fun LibraryScreen(
                     FolderHeaderCard(
                         folderName = state.folder.displayName,
                         isScanning = state.isScanning,
-                        discoveredCount = scanResult?.audioFiles?.size,
-                        totalFilesScanned = scanResult?.totalFilesScanned,
-                        durationMs = scanResult?.durationMs,
+                        discoveredCount = state.scanResult?.audioFiles?.size,
+                        totalFilesScanned = state.scanResult?.totalFilesScanned,
+                        durationMs = state.scanResult?.durationMs,
                         persistence = state.persistence,
-                        indexedCount = trackedIndex.size,
+                        indexedCount = (tracksState as? TracksUiState.Ready)?.totalTracks ?: 0,
                         onRescanClicked = { viewModel.rescanCurrentFolder() },
                         onChangeFolderClicked = { folderPickerLauncher.launch(null) },
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    when {
-                        // A completed scan from this session: show what it found.
-                        scanResult != null && scanResult.audioFiles.isEmpty() -> {
-                            EmptyScanResultContent(
-                                onRescanClicked = { viewModel.rescanCurrentFolder() },
-                            )
-                        }
+                    TracksSection(
+                        tracksState = tracksState,
+                        searchQuery = searchQuery,
+                        isScanning = state.isScanning,
+                        onSearchQueryChange = { viewModel.onSearchQueryChange(it) },
+                        onSortChange = { viewModel.onSortChange(it) },
+                        onRetry = { viewModel.retryTracks() },
+                        onRescan = { viewModel.rescanCurrentFolder() },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
+    }
+}
 
-                        scanResult != null -> {
-                            DiscoveredAudioList(
-                                audioFiles = scanResult.audioFiles,
+/**
+ * Renders the current [TracksUiState]: loading, error, empty-library, no
+ * search results, or the lazy track list with its search/sort controls.
+ */
+@Composable
+private fun TracksSection(
+    tracksState: TracksUiState,
+    searchQuery: String,
+    isScanning: Boolean,
+    onSearchQueryChange: (String) -> Unit,
+    onSortChange: (TrackSort) -> Unit,
+    onRetry: () -> Unit,
+    onRescan: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    when (tracksState) {
+        is TracksUiState.Loading -> {
+            CenteredStatus(
+                message = "Loading library...",
+                modifier = modifier,
+            )
+        }
+
+        is TracksUiState.Error -> {
+            Column(
+                modifier = modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    text = "Couldn't Load Tracks",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    textAlign = TextAlign.Center,
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = tracksState.message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                OutlinedButton(onClick = onRetry) {
+                    Text("Retry")
+                }
+            }
+        }
+
+        is TracksUiState.Ready -> {
+            when {
+                // Nothing indexed yet: guide the user (or show progress while
+                // the first scan is still running).
+                tracksState.totalTracks == 0 && isScanning -> {
+                    CenteredStatus(
+                        message = "Scanning music folder...",
+                        modifier = modifier,
+                    )
+                }
+
+                tracksState.totalTracks == 0 -> {
+                    NoTracksFoundContent(
+                        onRescanClicked = onRescan,
+                        modifier = modifier,
+                    )
+                }
+
+                else -> {
+                    Column(modifier = modifier.fillMaxSize()) {
+                        TrackSearchBar(
+                            query = searchQuery,
+                            onQueryChange = onSearchQueryChange,
+                            sort = tracksState.sort,
+                            onSortChange = onSortChange,
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(
+                            text = if (tracksState.isFiltered) {
+                                "${tracksState.tracks.size} of ${tracksState.totalTracks} tracks"
+                            } else {
+                                "${tracksState.totalTracks} tracks"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        if (tracksState.tracks.isEmpty()) {
+                            NoSearchResultsContent(
+                                query = searchQuery,
+                                onClearQuery = { onSearchQueryChange("") },
                                 modifier = Modifier.weight(1f),
                             )
-                        }
-
-                        // Database-first startup (or a running rescan): the
-                        // library comes straight from Room, so it stays visible
-                        // and updates automatically after scan writes.
-                        trackedIndex.isNotEmpty() -> {
-                            IndexedTrackList(
-                                tracks = trackedIndex,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-
-                        // First-ever scan of this folder is still running.
-                        state.isScanning -> {
-                            Box(
+                        } else {
+                            LazyColumn(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .weight(1f),
-                                contentAlignment = Alignment.Center,
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    Text(
-                                        text = "Scanning music folder...",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
+                                items(
+                                    items = tracksState.tracks,
+                                    key = { it.uri },
+                                ) { track ->
+                                    TrackItem(track = track)
                                 }
                             }
-                        }
-
-                        // Indexed marker exists but nothing was ever stored.
-                        else -> {
-                            IndexedTrackList(
-                                tracks = emptyList(),
-                                modifier = Modifier.weight(1f),
-                            )
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+/** Search field + sort menu shown above the track list. */
+@Composable
+private fun TrackSearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    sort: TrackSort,
+    onSortChange: (TrackSort) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            modifier = Modifier.weight(1f),
+            singleLine = true,
+            shape = RoundedCornerShape(8.dp),
+            placeholder = {
+                Text("Search title, artist, album")
+            },
+            trailingIcon = {
+                if (query.isNotEmpty()) {
+                    IconButton(onClick = { onQueryChange("") }) {
+                        Text(
+                            text = "✕",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            },
+        )
+
+        SortMenu(sort = sort, onSortChange = onSortChange)
+    }
+}
+
+/** Sort-order dropdown; the active option is highlighted. */
+@Composable
+private fun SortMenu(
+    sort: TrackSort,
+    onSortChange: (TrackSort) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box(modifier = modifier) {
+        OutlinedButton(onClick = { expanded = true }) {
+            Text(
+                text = "Sort: ${sort.label}",
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            TrackSort.entries.forEach { option ->
+                val isSelected = option == sort
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = option.label,
+                            color = if (isSelected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        )
+                    },
+                    onClick = {
+                        onSortChange(option)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}
+
+/** Centered progress indicator with a caption. */
+@Composable
+private fun CenteredStatus(
+    message: String,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** Empty state: the selected folder yields no supported audio files. */
+@Composable
+private fun NoTracksFoundContent(
+    onRescanClicked: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth().padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            text = "No Tracks Found",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center,
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = "No supported audio files were found in this folder.\n" +
+                "Supported formats: MP3, FLAC, WAV, M4A, AAC, OGG, OPUS.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        OutlinedButton(onClick = onRescanClicked) {
+            Text("Rescan Folder")
+        }
+    }
+}
+
+/** Empty state: the search query matches nothing in the library. */
+@Composable
+private fun NoSearchResultsContent(
+    query: String,
+    onClearQuery: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth().padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            text = "No Matches",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center,
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = "No tracks match \"$query\".",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        OutlinedButton(onClick = onClearQuery) {
+            Text("Clear Search")
         }
     }
 }
@@ -289,42 +556,6 @@ private fun FolderHeaderCard(
 }
 
 @Composable
-private fun EmptyScanResultContent(
-    onRescanClicked: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(
-            text = "No Supported Audio Files Found",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            textAlign = TextAlign.Center,
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = "No candidate audio files were found in this folder.\nSupported formats: MP3, FLAC, WAV, M4A, AAC, OGG, OPUS.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        OutlinedButton(onClick = onRescanClicked) {
-            Text("Rescan Folder")
-        }
-    }
-}
-
-@Composable
 private fun ScanFailedContent(
     folderName: String,
     errorMessage: String,
@@ -380,198 +611,4 @@ private fun ScanFailedContent(
             }
         }
     }
-}
-
-/**
- * Room-backed view of the indexed library. Rendered whenever there is no
- * scan result from the current session, so opening the app shows the persisted
- * library without scanning the filesystem.
- */
-@Composable
-private fun IndexedTrackList(
-    tracks: List<TrackEntity>,
-    modifier: Modifier = Modifier,
-) {
-    if (tracks.isEmpty()) {
-        Column(
-            modifier = modifier
-                .fillMaxWidth()
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Text(
-                text = "No indexed tracks yet",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                textAlign = TextAlign.Center,
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = "Press Rescan to index the selected folder.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-        }
-        return
-    }
-
-    LazyColumn(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        items(
-            items = tracks,
-            key = { it.uri },
-        ) { track ->
-            IndexedTrackItem(track = track)
-        }
-    }
-}
-
-@Composable
-private fun IndexedTrackItem(
-    track: TrackEntity,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        ),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = track.title,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-
-                Spacer(modifier = Modifier.height(2.dp))
-
-                Text(
-                    text = track.artist,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Text(
-                text = formatDuration(track.durationMs),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-private fun formatDuration(durationMs: Long): String {
-    if (durationMs <= 0L) return "--:--"
-    val totalSeconds = durationMs / 1_000L
-    return String.format(Locale.US, "%d:%02d", totalSeconds / 60L, totalSeconds % 60L)
-}
-
-@Composable
-private fun DiscoveredAudioList(
-    audioFiles: List<DiscoveredAudioFile>,
-    modifier: Modifier = Modifier,
-) {
-    LazyColumn(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        items(
-            items = audioFiles,
-            key = { it.uri.toString() },
-        ) { audioFile ->
-            DiscoveredAudioItem(audioFile = audioFile)
-        }
-    }
-}
-
-@Composable
-private fun DiscoveredAudioItem(
-    audioFile: DiscoveredAudioFile,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        ),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = audioFile.name.substringAfterLast('.', "AUDIO").uppercase(Locale.US),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontSize = 10.sp,
-                )
-            }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = audioFile.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-
-                Spacer(modifier = Modifier.height(2.dp))
-
-                Text(
-                    text = formatFileSize(audioFile.size),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
-
-private fun formatFileSize(sizeBytes: Long): String {
-    if (sizeBytes <= 0) return "0 B"
-    val units = arrayOf("B", "KB", "MB", "GB")
-    val digitGroups = (Math.log10(sizeBytes.toDouble()) / Math.log10(1024.0)).toInt()
-    return String.format(
-        Locale.US,
-        "%.1f %s",
-        sizeBytes / Math.pow(1024.0, digitGroups.toDouble()),
-        units[digitGroups.coerceIn(0, units.size - 1)]
-    )
 }

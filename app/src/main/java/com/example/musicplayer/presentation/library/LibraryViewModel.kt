@@ -3,18 +3,19 @@ package com.example.musicplayer.presentation.library
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.musicplayer.data.database.TrackEntity
-import com.example.musicplayer.data.repository.TrackRepository
 import com.example.musicplayer.data.scanner.ScanResult
 import com.example.musicplayer.data.scanner.ScanState
 import com.example.musicplayer.domain.model.CompletedScan
 import com.example.musicplayer.domain.model.SelectedFolder
+import com.example.musicplayer.domain.model.TrackSort
 import com.example.musicplayer.domain.repository.ScanStatusRepository
 import com.example.musicplayer.domain.usecase.CheckFolderPermissionUseCase
 import com.example.musicplayer.domain.usecase.GetSelectedFolderUseCase
+import com.example.musicplayer.domain.usecase.GetTracksUseCase
 import com.example.musicplayer.domain.usecase.ScanMusicFolderUseCase
 import com.example.musicplayer.domain.usecase.SetSelectedFolderUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,19 +27,20 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * ViewModel managing music-folder selection state and scan-driven library
- * persistence.
+ * ViewModel managing folder selection, scan-driven library persistence, and
+ * the Tracks list (search + sorting).
  *
- * The UI state is derived from three persistent/observable sources: the
+ * Folder/scan state is derived from three persistent/observable sources: the
  * selected folder (and its permission), the scan coordinator's canonical
  * in-session state, and the *persisted* "folder indexed" marker. The marker -
  * not the in-memory scan state - decides whether the folder still needs its
- * first scan after an app restart.
+ * first scan after an app restart. A scan runs only when no successful scan is
+ * recorded for the selected folder (first run/new folder) or when the user
+ * presses Rescan; every other startup loads the library from Room.
  *
- * A scan is started only when no successful scan is recorded for the selected
- * folder (first run, or a newly selected folder), or when the user presses
- * Rescan. Every other startup loads the library from Room, which is observed
- * through [indexedTracks] and never requires a filesystem traversal.
+ * The Tracks list is a separate, immutable [TracksUiState] stream built from
+ * the Room-backed [GetTracksUseCase], the debounced search input, and the
+ * selected [TrackSort]. Filtering and sorting happen off the main thread.
  */
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
@@ -47,28 +49,35 @@ class LibraryViewModel @Inject constructor(
     private val checkFolderPermissionUseCase: CheckFolderPermissionUseCase,
     private val scanMusicFolderUseCase: ScanMusicFolderUseCase,
     private val scanStatusRepository: ScanStatusRepository,
-    trackRepository: TrackRepository,
+    private val getTracksUseCase: GetTracksUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<LibraryUiState>(LibraryUiState.Loading)
+
+    /** Folder/scan lifecycle state of the Library screen. */
     val uiState: StateFlow<LibraryUiState> = _uiState.asStateFlow()
 
-    private val _indexedTracks = MutableStateFlow<List<TrackEntity>>(emptyList())
+    private val _tracksUiState = MutableStateFlow<TracksUiState>(TracksUiState.Loading)
 
     /**
-     * The persisted library, observed straight from Room with a Flow query.
-     * Updates automatically after any scan writes to the database; reading it
-     * never touches the filesystem.
+     * The Tracks list: Room library filtered by the (debounced) search query
+     * and ordered by the active sort. Updates automatically after scan writes
+     * and never touches the filesystem.
      */
-    val indexedTracks: StateFlow<List<TrackEntity>> = _indexedTracks.asStateFlow()
+    val tracksUiState: StateFlow<TracksUiState> = _tracksUiState.asStateFlow()
+
+    /** Immediate search input for the text field; filtering uses a debounced copy. */
+    private val _searchQuery = MutableStateFlow("")
+
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    private val _trackSort = MutableStateFlow(TrackSort.TITLE)
+
+    private var tracksJob: Job? = null
 
     init {
         observeLibrary()
-        viewModelScope.launch {
-            trackRepository.observeAll().collect { tracks ->
-                _indexedTracks.value = tracks
-            }
-        }
+        observeTracks()
     }
 
     /** Whether the selected folder currently exists and is readable. */
@@ -102,6 +111,38 @@ class LibraryViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    /**
+     * Observes the Room library as domain tracks, applying search + sorting
+     * off the main thread. Restartable: a failed stream is replaced wholesale
+     * when the user retries.
+     */
+    private fun observeTracks() {
+        tracksJob?.cancel()
+        _tracksUiState.value = TracksUiState.Loading
+        tracksJob = viewModelScope.launch {
+            buildTracksUiState(
+                tracks = getTracksUseCase(),
+                searchQuery = _searchQuery,
+                sort = _trackSort,
+            ).collect { state ->
+                _tracksUiState.value = state
+            }
+        }
+    }
+
+    fun onSearchQueryChange(query: String) {
+        _searchQuery.value = query
+    }
+
+    fun onSortChange(sort: TrackSort) {
+        _trackSort.value = sort
+    }
+
+    /** Restarts the library observation after [TracksUiState.Error]. */
+    fun retryTracks() {
+        observeTracks()
     }
 
     private fun selectedFolderAvailability(): Flow<FolderAvailability> =
