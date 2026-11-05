@@ -290,7 +290,7 @@ Add shuffle and repeat modes using Media3's playback capabilities.
 
 ## Task 15 — Build the persistent Mini Player
 
-**Status:** TODO  
+**Status:** DONE  
 **Priority:** High  
 **Depends on:** Tasks 10 and 12
 
@@ -300,16 +300,16 @@ Add a compact playback panel that remains available across the app's main screen
 
 ### Work
 
-- [ ] Place the Mini Player in the app-level Scaffold.
-- [ ] Display album artwork or a neutral placeholder.
-- [ ] Display the track title and artist.
-- [ ] Add Play/Pause control.
-- [ ] Add a Next control when another queue item is available.
-- [ ] Open Now Playing when the main panel area is tapped.
-- [ ] Display loading and playback-error states.
-- [ ] Observe the shared playback state without creating another player instance.
-- [ ] Account for system insets, bottom navigation, and compact screen sizes.
-- [ ] Ensure the Mini Player does not cover the main screen content.
+- [x] Place the Mini Player in the app-level Scaffold.
+- [x] Display album artwork or a neutral placeholder.
+- [x] Display the track title and artist.
+- [x] Add Play/Pause control.
+- [x] Add a Next control when another queue item is available.
+- [x] Open Now Playing when the main panel area is tapped.
+- [x] Display loading and playback-error states.
+- [x] Observe the shared playback state without creating another player instance.
+- [x] Account for system insets, bottom navigation, and compact screen sizes.
+- [x] Ensure the Mini Player does not cover the main screen content.
 
 ### Out of scope
 
@@ -326,6 +326,73 @@ Add a compact playback panel that remains available across the app's main screen
 - Controls operate the same ExoPlayer instance in `PlaybackService`.
 - The panel is not shown as an active player before playback has started.
 - Main screen content remains accessible and is not obscured.
+
+### Key decisions
+
+- The panel lives in the app-level `Scaffold` bottom bar of
+  `navigation/AppNavigation.kt`. Because the Scaffold reserves the measured
+  bottom-bar height as content padding, screen content is never covered; when
+  nothing is loaded the bar measures zero and the normal system-bar padding
+  applies instead.
+- `navigation/MiniPlayerVisibility.kt` decides per destination whether the
+  panel is shown (a pure, unit-tested function): visible on Library and Album
+  Details, hidden on Now Playing and Queue, which are playback surfaces
+  themselves. This avoids stacking a second set of transport controls on top of
+  a screen that already owns playback controls.
+- The panel is stateless (`presentation/components/MiniPlayer.kt`) and receives a
+  `PlayerUiState` snapshot. `presentation/player/PlayerViewModel.kt` derives it
+  from `PlayerController.state` with `distinctUntilChanged`; the projected state
+  deliberately excludes `positionMs`, so the 500 ms position ticks of the shared
+  playback stream do not recompose the panel or any screen hosting it.
+- No player is created for the UI: play/pause and next are forwarded to
+  `PlayerController`, which commands the single ExoPlayer owned by
+  `PlaybackService`.
+- Visibility rule: the panel renders while the service player holds a current
+  item (`PlayerUiState` is `null` otherwise). That keeps it absent on a cold
+  start and makes it appear as soon as a track is loaded, including tracks added
+  to an empty queue (they show paused, never autoplaying).
+- States: buffering shows a small progress indicator next to the title, and a
+  playback failure replaces the artist line with the error message in the error
+  colour. Next is only offered when `hasNext` is true.
+- Artwork is a neutral initial tile (`presentation/components/ArtworkTile.kt`)
+  shared with the Now Playing destination, because no artwork URI is populated
+  until the artwork pipeline task runs.
+- Insets: the bar is not inset-aware in Material 3, so the panel applies
+  `WindowInsets.navigationBars` bottom padding itself and keeps drawing behind
+  the navigation bar. Row content is 64 dp tall; all controls use 48 dp touch
+  targets and carry accessibility labels ("Play"/"Pause", "Next track", and an
+  "Open Now Playing" click label on the panel body).
+- Task 15 needed a destination to open, so `Routes.NOW_PLAYING` and a small
+  `NowPlayingScreen` shell were added (track title/artist/album, play/pause,
+  back). Seek bar, previous/next, shuffle/repeat and the queue entry point stay
+  with Task 16.
+
+### Validation performed
+
+- `./gradlew testDebugUnitTest` -> 60 tests pass, including the new
+  `PlayerUiStateTest` (projection, blank-metadata fallbacks, and proof that
+  position ticks produce an equal panel state) and `MiniPlayerVisibilityTest`.
+- `./gradlew assembleDebug assembleDebugAndroidTest` -> BUILD SUCCESSFUL.
+- New `MiniPlayerTest` (Compose UI, emulator `Medium_Phone_API_37.0`, API 37) ->
+  6 tests pass: title/artist render, play vs pause controls, next hidden at the
+  queue end, unknown artist label, buffering/error states, and that play, next
+  and panel taps report the right commands.
+- Full connected suite on the emulator -> `OK (31 tests)`.
+- Manual end-to-end run on the emulator: selected a music folder, played a track,
+  and confirmed the panel appears above the Library, follows a track transition
+  and a Next command, reflects pause, opens Now Playing, and is hidden on Now
+  Playing and Queue. Album Details was checked as well and its content is not
+  covered.
+
+### Notes
+
+- `androidx.test.espresso:espresso-core` was raised from `3.5.1` to `3.7.0`.
+  The Compose UI test rule runs Espresso's idle handling, and 3.5.1 fails on
+  API 37 with `NoSuchMethodException: android.hardware.input.InputManager.getInstance`
+  before any assertion executes. This is the minimum change that lets Compose UI
+  tests run on the project's target SDK; nothing else in the test stack changed.
+- Task 14 (shuffle/repeat) was not implemented here; the panel intentionally has
+  no shuffle or repeat controls.
 
 ---
 
