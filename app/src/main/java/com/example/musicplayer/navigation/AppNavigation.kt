@@ -13,6 +13,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.musicplayer.presentation.album.AlbumScreen
 import com.example.musicplayer.presentation.library.LibraryScreen
+import com.example.musicplayer.presentation.queue.QueueScreen
 
 /**
  * Root navigation host for the application.
@@ -39,6 +40,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                     onAlbumSelected = { albumId ->
                         navController.navigate(Routes.albumDetail(albumId))
                     },
+                    onOpenQueue = { navController.navigate(Routes.QUEUE) },
                 )
             }
 
@@ -49,6 +51,12 @@ fun AppNavigation(modifier: Modifier = Modifier) {
                 ),
             ) {
                 AlbumScreen(
+                    onBackClicked = { navController.popBackStack() },
+                )
+            }
+
+            composable(Routes.QUEUE) {
+                QueueScreen(
                     onBackClicked = { navController.popBackStack() },
                 )
             }

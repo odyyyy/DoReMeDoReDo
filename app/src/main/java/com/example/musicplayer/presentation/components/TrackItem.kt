@@ -13,9 +13,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,6 +38,9 @@ import java.util.Locale
  * Tapping the row starts playback from that track. The currently loaded track
  * is highlighted; [isPlaying] distinguishes "playing" from "paused".
  *
+ * When [onPlayNext] or [onAddToQueue] is provided, an overflow menu exposes the
+ * queue actions without giving up the whole-row tap target.
+ *
  * Artwork: real artwork renders only once artwork caching (Task 19) starts
  * populating `Track.artworkUri`. Until then a neutral placeholder tile is
  * shown, so the row never depends on missing images.
@@ -41,6 +51,8 @@ fun TrackItem(
     isCurrent: Boolean = false,
     isPlaying: Boolean = false,
     onClick: () -> Unit = {},
+    onPlayNext: (() -> Unit)? = null,
+    onAddToQueue: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -96,6 +108,58 @@ fun TrackItem(
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+
+        if (onPlayNext != null || onAddToQueue != null) {
+            TrackOverflowMenu(
+                onPlayNext = onPlayNext,
+                onAddToQueue = onAddToQueue,
+            )
+        }
+    }
+}
+
+/** Compact overflow menu with the per-track queue actions. */
+@Composable
+private fun TrackOverflowMenu(
+    onPlayNext: (() -> Unit)?,
+    onAddToQueue: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box(modifier = modifier) {
+        IconButton(onClick = { expanded = true }) {
+            Text(
+                text = "⋮",
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            if (onPlayNext != null) {
+                DropdownMenuItem(
+                    text = { Text("Play next") },
+                    onClick = {
+                        expanded = false
+                        onPlayNext()
+                    },
+                )
+            }
+
+            if (onAddToQueue != null) {
+                DropdownMenuItem(
+                    text = { Text("Add to queue") },
+                    onClick = {
+                        expanded = false
+                        onAddToQueue()
+                    },
+                )
+            }
+        }
     }
 }
 

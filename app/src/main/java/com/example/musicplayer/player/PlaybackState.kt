@@ -17,6 +17,8 @@ package com.example.musicplayer.player
  * @property positionMs Current playback position, or `0` when unknown.
  * @property hasNext True when a next playlist item exists.
  * @property hasPrevious True when a previous playlist item exists.
+ * @property queue The current playlist and the position within it, kept in
+ *   sync with the service-owned player.
  * @property playbackError User-facing message of the last playback failure,
  *   cleared when a new queue starts or the user dismisses it.
  */
@@ -29,12 +31,15 @@ data class PlaybackState(
     val positionMs: Long = 0L,
     val hasNext: Boolean = false,
     val hasPrevious: Boolean = false,
+    val queue: PlaybackQueue = PlaybackQueue(),
     val playbackError: String? = null,
 )
 
 /**
  * The track currently exposed by the player, rebuilt from Media3 metadata
  * because the service and the app exchange media items, not domain models.
+ * The same type is used as a queue item so the playing track and the queue
+ * entries share one identity ([mediaId] / [uri]).
  */
 data class PlaybackTrack(
     val uri: String,

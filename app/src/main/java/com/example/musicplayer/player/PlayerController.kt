@@ -2,6 +2,7 @@ package com.example.musicplayer.player
 
 import android.content.ComponentName
 import android.content.Context
+import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -63,14 +64,23 @@ class PlayerController @Inject constructor(
     /** Last playback failure; kept until a new queue starts or it is dismissed. */
     private var lastError: String? = null
 
+    /**
+     * Last projected playlist. Reused for position-only publishes so a large
+     * queue is not rebuilt twice a second; refreshed whenever the player emits
+     * a playlist/timeline event.
+     */
+    private var cachedQueue: PlaybackQueue = PlaybackQueue()
+
     private val playerListener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
-            publish(player)
+            // Playlist/timeline events are infrequent, so rebuild the queue
+            // here rather than on every position tick.
+            publish(player, refreshQueue = true)
         }
 
         override fun onPlayerError(error: PlaybackException) {
             lastError = error.toUserMessage()
-            controller?.let(::publish)
+            controller?.let { publish(it, refreshQueue = false) }
         }
     }
 
@@ -80,6 +90,7 @@ class PlayerController @Inject constructor(
             this@PlayerController.controller = null
             positionUpdates?.cancel()
             positionUpdates = null
+            cachedQueue = PlaybackQueue()
             _state.value = PlaybackState()
         }
     }
@@ -104,7 +115,7 @@ class PlayerController @Inject constructor(
                         mediaController.addListener(playerListener)
                         _state.value = _state.value.copy(isConnected = true)
                         flushPendingCommands(mediaController)
-                        publish(mediaController)
+                        publish(mediaController, refreshQueue = true)
                         startPositionUpdates()
                     }
                     .onFailure {
@@ -119,12 +130,21 @@ class PlayerController @Inject constructor(
     }
 
     /**
-     * Replaces the player playlist with [tracks] and starts at [startIndex].
+     * Replaces the player queue with [tracks] and starts at [startIndex].
      *
-     * A single track is just a one-item playlist, so the same path is used now
-     * and when album/track-list queues arrive.
+     * This is the single entry point for starting playback. The queue rules are:
+     * - The whole collection passed in becomes the queue, in the given order.
+     *   Selecting a track from the Library uses the currently displayed,
+     *   filtered and sorted track list; selecting from Album Details uses the
+     *   album's tracks.
+     * - Playback starts at the position of the selected track ([startIndex]),
+     *   clamped to the queue bounds.
+     * - Previous/Next then walk the Media3 playlist, so the item index the UI
+     *   observes always matches the player.
+     *
+     * A single track is just a one-item playlist, so the same path serves both.
      */
-    fun playQueue(tracks: List<Track>, startIndex: Int) {
+    fun setQueue(tracks: List<Track>, startIndex: Int) {
         if (tracks.isEmpty()) return
 
         val items = tracks.map { it.toMediaItem() }
@@ -135,6 +155,55 @@ class PlayerController @Inject constructor(
             mediaController.setMediaItems(items, index, 0L)
             mediaController.prepare()
             mediaController.play()
+        }
+    }
+
+    /**
+     * Appends [track] to the end of the queue without changing playback.
+     *
+     * This is the documented default for "Add to queue": new items always go to
+     * the end of the queue and the current item keeps playing. When nothing is
+     * loaded yet the item is queued but playback does not start on its own.
+     */
+    fun addToQueue(track: Track) = withController { mediaController ->
+        mediaController.addMediaItem(track.toMediaItem())
+    }
+
+    /**
+     * Inserts [track] immediately after the current item so it plays next.
+     *
+     * When the queue is empty the item becomes the only queue entry; playback
+     * still does not start on its own.
+     */
+    fun playNext(track: Track) = withController { mediaController ->
+        val index = (mediaController.currentMediaItemIndex + 1)
+            .coerceIn(0, mediaController.mediaItemCount)
+        mediaController.addMediaItem(index, track.toMediaItem())
+    }
+
+    /**
+     * Moves the queue item at [fromIndex] to [toIndex].
+     *
+     * Delegates to Media3, which reorders the playlist while keeping the current
+     * item and its playback position correct.
+     */
+    fun moveQueueItem(fromIndex: Int, toIndex: Int) = withController { mediaController ->
+        val count = mediaController.mediaItemCount
+        if (fromIndex == toIndex || fromIndex !in 0 until count || toIndex !in 0 until count) {
+            return@withController
+        }
+        mediaController.moveMediaItem(fromIndex, toIndex)
+    }
+
+    /**
+     * Removes the queue item at [index].
+     *
+     * Media3 handles removal of the current item by moving playback to the next
+     * (or previous) item, so the observed index stays consistent with the player.
+     */
+    fun removeQueueItem(index: Int) = withController { mediaController ->
+        if (index in 0 until mediaController.mediaItemCount) {
+            mediaController.removeMediaItem(index)
         }
     }
 
@@ -169,15 +238,14 @@ class PlayerController @Inject constructor(
     fun dismissPlaybackError() {
         if (lastError == null) return
         lastError = null
-        controller?.let(::publish)
+        controller?.let { publish(it, refreshQueue = false) }
             ?: run { _state.value = _state.value.copy(playbackError = null) }
     }
 
     private fun withController(command: (MediaController) -> Unit) {
         val mediaController = controller
         if (mediaController != null) {
-            runCatching { command(mediaController) }
-                .onFailure { lastError = "Playback command failed." }
+            runCommand(mediaController, command)
             return
         }
 
@@ -185,12 +253,34 @@ class PlayerController @Inject constructor(
         connect()
     }
 
+    /**
+     * Runs a player command on the controller's application thread.
+     *
+     * [MediaController] rejects calls made from any other thread, so commands
+     * are marshalled through the main dispatcher. `Dispatchers.Main.immediate`
+     * executes inline when the caller is already on the main thread, so UI
+     * commands stay synchronous while tests and other callers are still safe.
+     */
+    private fun runCommand(mediaController: MediaController, command: (MediaController) -> Unit) {
+        scope.launch {
+            if (controller !== mediaController) return@launch
+            runCatching { command(mediaController) }
+                .onFailure { error ->
+                    Log.e(TAG, "Playback command failed", error)
+                    lastError = "Playback command failed."
+                }
+        }
+    }
+
     private fun flushPendingCommands(mediaController: MediaController) {
         val commands = pendingCommands.toList()
         pendingCommands.clear()
         commands.forEach { command ->
             runCatching { command(mediaController) }
-                .onFailure { lastError = "Playback command failed." }
+                .onFailure { error ->
+                    Log.e(TAG, "Playback command failed", error)
+                    lastError = "Playback command failed."
+                }
         }
     }
 
@@ -200,31 +290,60 @@ class PlayerController @Inject constructor(
             while (isActive) {
                 val mediaController = controller ?: break
                 if (mediaController.isPlaying) {
-                    publish(mediaController)
+                    publish(mediaController, refreshQueue = false)
                 }
                 delay(POSITION_UPDATE_INTERVAL_MS)
             }
         }
     }
 
-    private fun publish(player: Player) {
+    /**
+     * Publishes a fresh [PlaybackState] snapshot.
+     *
+     * [refreshQueue] rebuilds the queue projection from the player. It is set
+     * only for playlist/timeline events; the periodic position updates reuse
+     * the cached queue so the queue list is not reallocated on every tick.
+     */
+    private fun publish(player: Player, refreshQueue: Boolean) {
         val durationMs = player.duration.validOrZero()
         val item = player.currentMediaItem
 
+        if (refreshQueue) {
+            cachedQueue = buildQueue(player)
+        }
+
         _state.value = PlaybackState(
             isConnected = true,
-            currentTrack = item?.toPlaybackTrack(durationMs),
+            currentTrack = item?.toPlaybackTrack(
+                durationOverrideMs = durationMs.takeIf { it > 0L },
+            ),
             isPlaying = player.isPlaying,
             isBuffering = player.playbackState == Player.STATE_BUFFERING,
             durationMs = durationMs,
             positionMs = player.currentPosition.validOrZero(),
             hasNext = player.hasNextMediaItem(),
             hasPrevious = player.hasPreviousMediaItem(),
+            queue = cachedQueue,
             playbackError = lastError,
         )
     }
 
-    private fun MediaItem.toPlaybackTrack(durationMs: Long): PlaybackTrack =
+    /** Projects the player's playlist and current index into a [PlaybackQueue]. */
+    private fun buildQueue(player: Player): PlaybackQueue {
+        val count = player.mediaItemCount
+        if (count == 0) return PlaybackQueue()
+
+        val items = ArrayList<PlaybackTrack>(count)
+        for (index in 0 until count) {
+            items += player.getMediaItemAt(index).toPlaybackTrack()
+        }
+        return PlaybackQueue(
+            items = items,
+            currentIndex = player.currentMediaItemIndex,
+        )
+    }
+
+    private fun MediaItem.toPlaybackTrack(durationOverrideMs: Long? = null): PlaybackTrack =
         PlaybackTrack(
             uri = localConfiguration?.uri?.toString() ?: mediaId,
             mediaId = mediaId,
@@ -232,7 +351,7 @@ class PlayerController @Inject constructor(
             artist = mediaMetadata.artist?.toString(),
             album = mediaMetadata.albumTitle?.toString(),
             artworkUri = mediaMetadata.artworkUri?.toString(),
-            durationMs = durationMs,
+            durationMs = durationOverrideMs ?: mediaMetadata.durationMs ?: 0L,
         )
 
     private fun Long.validOrZero(): Long =
@@ -252,6 +371,8 @@ class PlayerController @Inject constructor(
     }
 
     private companion object {
+        const val TAG = "PlayerController"
+
         /** Position is published twice a second, which is enough for a seek bar. */
         const val POSITION_UPDATE_INTERVAL_MS = 500L
     }

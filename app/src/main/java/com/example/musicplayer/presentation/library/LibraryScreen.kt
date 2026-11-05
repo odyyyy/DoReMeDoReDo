@@ -62,6 +62,7 @@ import com.example.musicplayer.presentation.folders.FolderSelectionContent
 @Composable
 fun LibraryScreen(
     onAlbumSelected: (String) -> Unit = {},
+    onOpenQueue: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
@@ -72,6 +73,7 @@ fun LibraryScreen(
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val playbackHighlight by viewModel.playbackHighlight.collectAsStateWithLifecycle()
     val playbackError by viewModel.playbackError.collectAsStateWithLifecycle()
+    val queueSize by viewModel.queueSize.collectAsStateWithLifecycle()
 
     val folderPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
@@ -134,8 +136,10 @@ fun LibraryScreen(
                         durationMs = state.scanResult?.durationMs,
                         persistence = state.persistence,
                         indexedCount = (tracksState as? TracksUiState.Ready)?.totalTracks ?: 0,
+                        queueSize = queueSize,
                         onRescanClicked = { viewModel.rescanCurrentFolder() },
                         onChangeFolderClicked = { folderPickerLauncher.launch(null) },
+                        onOpenQueueClicked = onOpenQueue,
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -166,6 +170,8 @@ fun LibraryScreen(
                                 onSearchQueryChange = { viewModel.onSearchQueryChange(it) },
                                 onSortChange = { viewModel.onSortChange(it) },
                                 onTrackSelected = { viewModel.onTrackSelected(it) },
+                                onTrackPlayNext = { viewModel.onPlayNext(it) },
+                                onTrackAddToQueue = { viewModel.onAddToQueue(it) },
                                 onRetry = { viewModel.retryTracks() },
                                 onRescan = { viewModel.rescanCurrentFolder() },
                                 modifier = Modifier.weight(1f),
@@ -320,6 +326,8 @@ private fun TracksSection(
     onSearchQueryChange: (String) -> Unit,
     onSortChange: (TrackSort) -> Unit,
     onTrackSelected: (Track) -> Unit,
+    onTrackPlayNext: (Track) -> Unit,
+    onTrackAddToQueue: (Track) -> Unit,
     onRetry: () -> Unit,
     onRescan: () -> Unit,
     modifier: Modifier = Modifier,
@@ -426,6 +434,8 @@ private fun TracksSection(
                                         isCurrent = isCurrent,
                                         isPlaying = isCurrent && playbackHighlight?.isPlaying == true,
                                         onClick = { onTrackSelected(track) },
+                                        onPlayNext = { onTrackPlayNext(track) },
+                                        onAddToQueue = { onTrackAddToQueue(track) },
                                     )
                                 }
                             }
@@ -662,8 +672,10 @@ private fun FolderHeaderCard(
     durationMs: Long?,
     persistence: ScanPersistence?,
     indexedCount: Int,
+    queueSize: Int,
     onRescanClicked: () -> Unit,
     onChangeFolderClicked: () -> Unit,
+    onOpenQueueClicked: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -721,6 +733,10 @@ private fun FolderHeaderCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                }
+
+                OutlinedButton(onClick = onOpenQueueClicked) {
+                    Text(if (queueSize > 0) "Queue ($queueSize)" else "Queue")
                 }
             }
 

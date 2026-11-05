@@ -78,15 +78,25 @@ class AlbumViewModel @Inject constructor(
         val ready = uiState.value as? AlbumUiState.Ready ?: return
         val index = ready.tracks.indexOfFirst { it.uri == track.uri }
         if (index < 0) return
-        playerController.playQueue(ready.tracks, index)
+        playerController.setQueue(ready.tracks, index)
     }
 
     /** Plays the entire album starting from the first track. */
     fun playAlbum() {
         val ready = uiState.value as? AlbumUiState.Ready ?: return
         if (ready.tracks.isNotEmpty()) {
-            playerController.playQueue(ready.tracks, startIndex = 0)
+            playerController.setQueue(ready.tracks, startIndex = 0)
         }
+    }
+
+    /** Appends [track] to the end of the playback queue. */
+    fun onAddToQueue(track: Track) {
+        playerController.addToQueue(track)
+    }
+
+    /** Inserts [track] immediately after the current item. */
+    fun onPlayNext(track: Track) {
+        playerController.playNext(track)
     }
 
     fun dismissPlaybackError() {

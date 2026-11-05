@@ -86,7 +86,7 @@ Initially, albums may be derived from aggregate queries over `TrackEntity`. Do n
 
 ## Task 12 — Implement the playback queue and playlist-based track selection
 
-**Status:** TODO  
+**Status:** DONE  
 **Priority:** Critical  
 **Depends on:** Tasks 09–10
 
@@ -96,16 +96,16 @@ Introduce a playback queue so that a selected track plays in the context of a li
 
 ### Work
 
-- [ ] Define the queue item model and the rules for creating a queue.
-- [ ] Implement controller APIs for setting a Media3 playlist and its initial index.
-- [ ] When a track is selected from the main Library, create a queue from the current displayed track collection.
-- [ ] When a track is selected from Album Details, create a queue from that album's tracks.
-- [ ] Pass the queue to the single ExoPlayer instance owned by `PlaybackService`.
-- [ ] Keep the current item index synchronized with Media3.
-- [ ] Implement Next and Previous behavior, including queue boundaries.
-- [ ] Handle deleted, unavailable, and unreadable content URIs.
-- [ ] Expose the current item and queue state through observable playback state.
-- [ ] Ensure that no ExoPlayer instance is created in a ViewModel or Compose screen.
+- [x] Define the queue item model and the rules for creating a queue.
+- [x] Implement controller APIs for setting a Media3 playlist and its initial index.
+- [x] When a track is selected from the main Library, create a queue from the current displayed track collection.
+- [x] When a track is selected from Album Details, create a queue from that album's tracks.
+- [x] Pass the queue to the single ExoPlayer instance owned by `PlaybackService`.
+- [x] Keep the current item index synchronized with Media3.
+- [x] Implement Next and Previous behavior, including queue boundaries.
+- [x] Handle deleted, unavailable, and unreadable content URIs.
+- [x] Expose the current item and queue state through observable playback state.
+- [x] Ensure that no ExoPlayer instance is created in a ViewModel or Compose screen.
 
 ### Out of scope
 
@@ -123,11 +123,57 @@ Introduce a playback queue so that a selected track plays in the context of a li
 - An unavailable file is handled without crashing the app.
 - The app uses exactly one ExoPlayer instance, owned by `PlaybackService`.
 
+### Key decisions
+
+- The queue *is* the Media3 playlist. [PlaybackQueue] is a read-only projection of
+  `Player.mediaItemCount` / `getMediaItemAt` / `currentMediaItemIndex`, so the
+  player stays the single source of truth and no second, editable queue is kept.
+- The queue item model reuses `PlaybackTrack` (mediaId, uri, title, artist,
+  album, artworkUri, durationMs); the track's document URI is both media URI and
+  media ID, so queue entries and library rows share one identity.
+- `Track.toMediaItem()` writes the indexed duration into `MediaMetadata`
+  (`setDurationMs`), so every queue item can be rendered without querying the
+  library. The live duration still comes from `Player.duration` for the current
+  item.
+- `PlaybackState` gained `queue: PlaybackQueue`. The queue list is rebuilt only
+  for playlist/timeline events; the 500 ms position loop reuses the cached queue
+  so a large queue is not reallocated twice a second.
+- `PlayerController.setQueue(tracks, startIndex)` is the single entry point: the
+  whole supplied collection becomes the queue and playback starts at the
+  selected index (clamped). Library selection passes the currently displayed,
+  filtered and sorted track list; Album Details passes the album's tracks.
+- `PlayerController` now marshals every command through `Dispatchers.Main.immediate`
+  because `MediaController` rejects calls from other threads
+  (`IllegalStateException: MediaController method is called from a wrong
+  thread`). This keeps UI commands synchronous while making any caller safe.
+- Next/Previous use Media3's `seekToNext`/`seekToPrevious`, which also implement
+  the required "restart after ~3 s, otherwise previous item" rule.
+- Unreadable/unavailable URIs surface as a user-facing playback error instead of
+  a crash, and the queue index still reflects the failed item.
+
+### Validation performed
+
+- `./gradlew testDebugUnitTest assembleDebug assembleDebugAndroidTest` -> BUILD
+  SUCCESSFUL; new pure `PlaybackQueueTest` cases pass.
+- `PlayerControllerInstrumentedTest` on `Medium_Phone_API_37.0` (API 37) -> the
+  new `multiItemQueue_exposesQueueAndNavigatesWithNextAndPrevious` case verifies
+  a 3-item queue is projected into `PlaybackState.queue`, the current index, and
+  Next/Previous navigation, alongside the existing
+  play/pause/seek/unreadable-URI case.
+- Full instrumented suite on the emulator -> `OK (24 tests)`.
+
+### Notes
+
+The instrumented run was validated on the `Medium_Phone_API_37.0` emulator. The
+connected physical device (Infinix X6850, Android 16) could not complete the run
+because its OEM background freezer (`Usf_Hiber`) freezes the app UID while the
+test runs in the background; this is an environment limitation, not an app fault.
+
 ---
 
 ## Task 13 — Add queue management and reordering
 
-**Status:** TODO  
+**Status:** DONE  
 **Priority:** High  
 **Depends on:** Task 12
 
@@ -137,16 +183,16 @@ Allow users to add tracks to the queue, inspect the queue, and change its playba
 
 ### Work
 
-- [ ] Add an Add to Queue action for tracks.
-- [ ] Define and document the default behavior: newly added tracks go to the end of the queue.
-- [ ] Add a Play Next action if it can be implemented without complicating the basic queue model.
-- [ ] Create a Queue screen listing queued tracks and highlighting the current track.
-- [ ] Implement drag-and-drop reordering.
-- [ ] Apply reordering to Media3 without losing the current playback position.
-- [ ] Add the ability to remove an individual queue item.
-- [ ] Handle removal of the current item consistently with Media3 behavior.
-- [ ] Provide an empty-queue state.
-- [ ] Keep the UI synchronized when queue changes originate from `PlaybackService`.
+- [x] Add an Add to Queue action for tracks.
+- [x] Define and document the default behavior: newly added tracks go to the end of the queue.
+- [x] Add a Play Next action if it can be implemented without complicating the basic queue model.
+- [x] Create a Queue screen listing queued tracks and highlighting the current track.
+- [x] Implement drag-and-drop reordering.
+- [x] Apply reordering to Media3 without losing the current playback position.
+- [x] Add the ability to remove an individual queue item.
+- [x] Handle removal of the current item consistently with Media3 behavior.
+- [x] Provide an empty-queue state.
+- [x] Keep the UI synchronized when queue changes originate from `PlaybackService`.
 
 ### Out of scope
 
@@ -163,6 +209,42 @@ Allow users to add tracks to the queue, inspect the queue, and change its playba
 - Removing an item does not desynchronize the current item index.
 - The UI correctly displays an empty queue and the current item.
 - Queue changes are reflected by every screen observing playback state.
+
+### Key decisions
+
+- Queue mutations live on `PlayerController` and delegate to Media3 playlist APIs:
+  `addToQueue` (append), `playNext` (insert after the current index), `moveQueueItem`
+  (`moveMediaItem`) and `removeQueueItem` (`removeMediaItem`). No parallel queue is
+  kept, so the observed order always matches the real playback order.
+- **Add to queue** appends to the end and never changes the play state; if nothing
+  is loaded the item is queued but playback does not start (per the "do not
+  autoplay" principle). **Play next** inserts directly after the current item.
+- The Queue screen renders `PlaybackQueue` straight from `PlayerController.state`
+  (`QueueViewModel` only projects it), so service-originated changes such as track
+  transitions and removals appear automatically and every screen stays in sync.
+- Drag-and-drop reordering is long-press initiated. The dragged row is translated
+  with `graphicsLayer` and the destination index is computed on drop by
+  `queueDropTargetIndex(fromIndex, offsetY, rowPitchPx, itemCount)` (a pure,
+  unit-tested function) from a fixed row pitch; the reorder is then applied with
+  Media3, which keeps the current item and position intact.
+- Removing the current item relies on Media3 to advance to the next/previous item,
+  so the index never desynchronizes.
+- Per-track "Play next" / "Add to queue" are exposed through an overflow menu on
+  `TrackItem`, keeping the whole-row tap-to-play target. The queue is reachable from
+  the Library header ("Queue (N)") until the Now Playing / Mini Player entry points
+  arrive in Tasks 15–17.
+- Empty queue shows a dedicated state with a "Back to Library" action.
+
+### Validation performed
+
+- `./gradlew testDebugUnitTest assembleDebug assembleDebugAndroidTest` -> BUILD
+  SUCCESSFUL; new `QueueReorderTest` covers drag-target math (rounding, clamping,
+  invalid geometry).
+- `PlayerControllerInstrumentedTest#queueManagement_addsMovesAndRemovesWithoutDesync`
+  on `Medium_Phone_API_37.0` (API 37) verifies append-to-end, insert-after-current,
+  reorder (current item follows), and removing the current item without index
+  desync.
+- Full instrumented suite on the emulator -> `OK (25 tests)`.
 
 ---
 

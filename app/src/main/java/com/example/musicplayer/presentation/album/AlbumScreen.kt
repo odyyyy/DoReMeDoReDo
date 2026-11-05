@@ -133,6 +133,8 @@ fun AlbumScreen(
                             isCurrent = isCurrent,
                             isPlaying = isCurrent && playbackHighlight?.isPlaying == true,
                             onClick = { viewModel.onTrackSelected(track) },
+                            onPlayNext = { viewModel.onPlayNext(track) },
+                            onAddToQueue = { viewModel.onAddToQueue(track) },
                         )
                     }
                 }

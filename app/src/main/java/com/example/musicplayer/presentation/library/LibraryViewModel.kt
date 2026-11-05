@@ -121,6 +121,16 @@ class LibraryViewModel @Inject constructor(
             initialValue = null,
         )
 
+    /** Number of items currently in the playback queue. */
+    val queueSize: StateFlow<Int> = playerController.state
+        .map { it.queue.size }
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = 0,
+        )
+
     private val _trackSort = MutableStateFlow(TrackSort.TITLE)
 
     private var tracksJob: Job? = null
@@ -192,13 +202,24 @@ class LibraryViewModel @Inject constructor(
 
     /**
      * Starts playback from [track] using the currently displayed, filtered and
-     * sorted list as the player queue.
+     * sorted list as the player queue, per the queue rules in
+     * [PlayerController.setQueue].
      */
     fun onTrackSelected(track: Track) {
         val tracks = (_tracksUiState.value as? TracksUiState.Ready)?.tracks ?: return
         val index = tracks.indexOfFirst { it.uri == track.uri }
         if (index < 0) return
-        playerController.playQueue(tracks, index)
+        playerController.setQueue(tracks, index)
+    }
+
+    /** Appends [track] to the end of the playback queue. */
+    fun onAddToQueue(track: Track) {
+        playerController.addToQueue(track)
+    }
+
+    /** Inserts [track] immediately after the current item. */
+    fun onPlayNext(track: Track) {
+        playerController.playNext(track)
     }
 
     /** Dismisses the last playback failure message. */

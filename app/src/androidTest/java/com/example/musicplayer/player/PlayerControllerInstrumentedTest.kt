@@ -77,8 +77,8 @@ class PlayerControllerInstrumentedTest {
             dateAdded = 0L,
         )
 
-        Log.d("PlayerDiag", "stage: playQueue")
-        controller.playQueue(listOf(track), startIndex = 0)
+        Log.d("PlayerDiag", "stage: setQueue")
+        controller.setQueue(listOf(track), startIndex = 0)
 
         val playing = withTimeout(PLAYBACK_TIMEOUT_MS) {
             controller.state.first { it.isPlaying }
@@ -101,12 +101,127 @@ class PlayerControllerInstrumentedTest {
         val missingTrack = track.copy(
             uri = Uri.fromFile(File(context.cacheDir, "missing-${System.nanoTime()}.wav")).toString(),
         )
-        controller.playQueue(listOf(missingTrack), startIndex = 0)
+        controller.setQueue(listOf(missingTrack), startIndex = 0)
 
         val failed = withTimeout(PLAYBACK_TIMEOUT_MS) {
             controller.state.first { it.playbackError != null }
         }
         assertTrue(!failed.isPlaying)
+    }
+
+    /**
+     * A multi-item queue is projected into [PlaybackState.queue] and
+     * Next/Previous move the current index while staying in sync with the
+     * service-owned player.
+     */
+    @Test
+    fun multiItemQueue_exposesQueueAndNavigatesWithNextAndPrevious() = runBlocking {
+        withTimeout(CONNECT_TIMEOUT_MS) {
+            controller.state.first { it.isConnected }
+        }
+
+        val tracks = (1..3).map { index ->
+            val file = createWavFile("queue-$index-${System.nanoTime()}.wav", durationMs = 5_000)
+            Track(
+                uri = Uri.fromFile(file).toString(),
+                title = "Track $index",
+                artist = "Test Artist",
+                album = "Test Album",
+                durationMs = 5_000,
+                albumId = null,
+                artworkUri = null,
+                dateAdded = 0L,
+            )
+        }
+
+        controller.setQueue(tracks, startIndex = 0)
+
+        val started = withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first { it.isPlaying && it.queue.size == 3 }
+        }
+        assertEquals(0, started.queue.currentIndex)
+        assertEquals("Track 1", started.queue.currentItem?.title)
+        assertEquals(tracks.map { it.uri }, started.queue.items.map { it.uri })
+
+        controller.seekToNext()
+        val second = withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first { it.queue.currentIndex == 1 }
+        }
+        assertEquals("Track 2", second.currentTrack?.title)
+
+        controller.seekToPrevious()
+        val backToFirst = withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first { it.queue.currentIndex == 0 }
+        }
+        assertEquals("Track 1", backToFirst.currentTrack?.title)
+    }
+
+    /**
+     * The queue management operations: append, insert-next, reorder and remove
+     * are applied to Media3 and the projected queue/current index stay in sync.
+     */
+    @Test
+    fun queueManagement_addsMovesAndRemovesWithoutDesync() = runBlocking {
+        withTimeout(CONNECT_TIMEOUT_MS) {
+            controller.state.first { it.isConnected }
+        }
+
+        val a = wavTrack("a", "A")
+        val b = wavTrack("b", "B")
+        val c = wavTrack("c", "C")
+
+        controller.setQueue(listOf(a, b, c), startIndex = 0)
+        withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first { it.queue.size == 3 && it.isPlaying }
+        }
+
+        // Add to queue appends to the end and does not change the current item.
+        val d = wavTrack("d", "D")
+        controller.addToQueue(d)
+        val withD = withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first { it.queue.size == 4 }
+        }
+        assertEquals(d.uri, withD.queue.items.last().mediaId)
+        assertEquals(0, withD.queue.currentIndex)
+
+        // Play next inserts right after the current item.
+        val e = wavTrack("e", "E")
+        controller.playNext(e)
+        val withE = withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first { it.queue.size == 5 }
+        }
+        assertEquals(e.uri, withE.queue.items[1].mediaId)
+
+        // Moving an item ahead of the current one keeps the current item loaded.
+        controller.moveQueueItem(fromIndex = 1, toIndex = 0)
+        val moved = withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first { it.queue.items.first().mediaId == e.uri }
+        }
+        assertEquals(1, moved.queue.currentIndex)
+        assertEquals(a.uri, moved.queue.currentItem?.mediaId)
+
+        // Removing the current item lets Media3 advance without desync.
+        controller.removeQueueItem(moved.queue.currentIndex)
+        val removed = withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first { it.queue.size == 4 }
+        }
+        assertEquals(4, removed.queue.size)
+        assertEquals(b.uri, removed.queue.currentItem?.mediaId)
+    }
+
+    /** A 30 s silent WAV track so playback never advances mid-test. */
+    private fun wavTrack(name: String, title: String): Track {
+        val file = createWavFile("queue-$name-${System.nanoTime()}.wav", durationMs = 30_000)
+        return Track(
+            uri = Uri.fromFile(file).toString(),
+            title = title,
+            artist = "Test Artist",
+            album = "Test Album",
+            durationMs = 30_000,
+            albumId = null,
+            artworkUri = null,
+            dateAdded = 0L,
+        )
     }
 
     /** Writes a mono 16-bit PCM WAV of silence. */
