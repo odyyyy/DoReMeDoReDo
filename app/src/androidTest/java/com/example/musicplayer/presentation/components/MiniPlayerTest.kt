@@ -6,6 +6,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.example.musicplayer.player.PlaybackRepeatMode
 import com.example.musicplayer.presentation.player.PlayerUiState
 import com.example.musicplayer.ui.theme.MusicPlayerTheme
 import org.junit.Assert.assertEquals
@@ -115,6 +116,9 @@ class MiniPlayerTest {
         isBuffering = isBuffering,
         hasNext = hasNext,
         hasPrevious = false,
+        shuffleModeEnabled = false,
+        repeatMode = PlaybackRepeatMode.OFF,
+        hasEnded = false,
         errorMessage = errorMessage,
     )
 }

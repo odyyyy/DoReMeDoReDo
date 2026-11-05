@@ -78,6 +78,7 @@ fun AppNavigation(modifier: Modifier = Modifier) {
             composable(Routes.NOW_PLAYING) {
                 NowPlayingScreen(
                     onBackClicked = { navController.popBackStack() },
+                    onOpenQueue = { navController.navigate(Routes.QUEUE) },
                 )
             }
 

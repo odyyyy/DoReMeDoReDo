@@ -1,6 +1,7 @@
 package com.example.musicplayer.presentation.player
 
 import com.example.musicplayer.domain.model.TrackMetadata
+import com.example.musicplayer.player.PlaybackRepeatMode
 import com.example.musicplayer.player.PlaybackState
 
 /**
@@ -8,8 +9,8 @@ import com.example.musicplayer.player.PlaybackState
  *
  * The playback position is deliberately absent: the panel only changes when the
  * track, the transport controls, or the error state change, so it does not
- * recompose on every playback tick. Screens that need a seek position
- * (Now Playing) will collect it separately.
+ * recompose on every playback tick. Screens that need a seek position collect
+ * [PlaybackProgress] instead.
  *
  * @property trackUri Stable URI of the loaded item, used to tell whether the
  *   panel is still showing the same track.
@@ -21,6 +22,9 @@ import com.example.musicplayer.player.PlaybackState
  * @property isBuffering True while the player is buffering the current item.
  * @property hasNext True when a next playlist item exists.
  * @property hasPrevious True when a previous playlist item exists.
+ * @property shuffleModeEnabled True while Media3 shuffle mode is on.
+ * @property repeatMode The repeat mode currently applied by Media3.
+ * @property hasEnded True when playback finished and nothing is playing.
  * @property errorMessage User-facing playback failure, or `null` when healthy.
  */
 data class PlayerUiState(
@@ -33,6 +37,9 @@ data class PlayerUiState(
     val isBuffering: Boolean,
     val hasNext: Boolean,
     val hasPrevious: Boolean,
+    val shuffleModeEnabled: Boolean,
+    val repeatMode: PlaybackRepeatMode,
+    val hasEnded: Boolean,
     val errorMessage: String?,
 )
 
@@ -57,9 +64,15 @@ fun PlaybackState.toPlayerUiState(): PlayerUiState? {
         isBuffering = isBuffering,
         hasNext = hasNext,
         hasPrevious = hasPrevious,
+        shuffleModeEnabled = shuffleModeEnabled,
+        repeatMode = repeatMode,
+        hasEnded = hasEnded,
         errorMessage = playbackError,
     )
 }
 
 /** Artist line shown when the loaded item has no artist metadata. */
 internal fun PlayerUiState.artistLabel(): String = artist ?: TrackMetadata.UNKNOWN_ARTIST
+
+/** Album line shown when the loaded item has no album metadata. */
+internal fun PlayerUiState.albumLabel(): String = album ?: TrackMetadata.UNKNOWN_ALBUM

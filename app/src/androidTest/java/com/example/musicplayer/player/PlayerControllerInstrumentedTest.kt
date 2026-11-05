@@ -17,6 +17,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -209,9 +210,77 @@ class PlayerControllerInstrumentedTest {
         assertEquals(b.uri, removed.queue.currentItem?.mediaId)
     }
 
+    /**
+     * Shuffle and repeat modes are written to Media3 and read back from it, so
+     * the UI always observes the real player state.
+     */
+    @Test
+    fun shuffleAndRepeatModes_areAppliedAndPublished() = runBlocking {
+        withTimeout(CONNECT_TIMEOUT_MS) {
+            controller.state.first { it.isConnected }
+        }
+
+        val tracks = (1..3).map { index -> wavTrack("mode$index", "Track $index") }
+        controller.setQueue(tracks, startIndex = 0)
+        val started = withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first { it.queue.size == 3 && it.isPlaying }
+        }
+        assertFalse(started.shuffleModeEnabled)
+        assertEquals(PlaybackRepeatMode.OFF, started.repeatMode)
+
+        controller.toggleShuffle()
+        val shuffled = withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first { it.shuffleModeEnabled }
+        }
+
+        // Next still moves through the queue while shuffle is on.
+        controller.seekToNext()
+        withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first { it.queue.currentIndex != shuffled.queue.currentIndex }
+        }
+
+        // Changing the queue while shuffle is on keeps the playlist coherent
+        // and does not disturb the current item.
+        val current = controller.state.value
+        val appended = wavTrack("mode-extra", "Extra")
+        controller.addToQueue(appended)
+        val grown = withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first { it.queue.size == 4 }
+        }
+        assertTrue(grown.shuffleModeEnabled)
+        assertEquals(current.queue.currentItem?.mediaId, grown.queue.currentItem?.mediaId)
+        assertEquals(appended.uri, grown.queue.items.last().mediaId)
+
+        controller.toggleShuffle()
+        withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first { !it.shuffleModeEnabled }
+        }
+
+        // Repeat cycles Off -> All -> One -> Off and each value is published.
+        controller.cycleRepeatMode()
+        withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first { it.repeatMode == PlaybackRepeatMode.ALL }
+        }
+
+        controller.cycleRepeatMode()
+        withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first { it.repeatMode == PlaybackRepeatMode.ONE }
+        }
+
+        controller.cycleRepeatMode()
+        withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first { it.repeatMode == PlaybackRepeatMode.OFF }
+        }
+
+        controller.setRepeatMode(PlaybackRepeatMode.ONE)
+        val direct = withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first { it.repeatMode == PlaybackRepeatMode.ONE }
+        }
+        assertEquals(PlaybackRepeatMode.ONE, direct.repeatMode)
+    }
+
     /** A 30 s silent WAV track so playback never advances mid-test. */
-    private fun wavTrack(name: String, title: String): Track {
-        val file = createWavFile("queue-$name-${System.nanoTime()}.wav", durationMs = 30_000)
+    private fun wavTrack(name: String, title: String): Track {        val file = createWavFile("queue-$name-${System.nanoTime()}.wav", durationMs = 30_000)
         return Track(
             uri = Uri.fromFile(file).toString(),
             title = title,

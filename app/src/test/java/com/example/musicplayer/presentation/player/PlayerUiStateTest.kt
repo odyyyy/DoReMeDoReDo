@@ -1,6 +1,7 @@
 package com.example.musicplayer.presentation.player
 
 import com.example.musicplayer.domain.model.TrackMetadata
+import com.example.musicplayer.player.PlaybackRepeatMode
 import com.example.musicplayer.player.PlaybackState
 import com.example.musicplayer.player.PlaybackTrack
 import org.junit.Assert.assertEquals
@@ -51,7 +52,23 @@ class PlayerUiStateTest {
         assertFalse(uiState.isBuffering)
         assertTrue(uiState.hasNext)
         assertFalse(uiState.hasPrevious)
+        assertNoModes(uiState)
         assertNull(uiState.errorMessage)
+    }
+
+    @Test
+    fun `shuffle repeat and ended flags are projected`() {
+        val uiState = PlaybackState(
+            currentTrack = track,
+            shuffleModeEnabled = true,
+            repeatMode = PlaybackRepeatMode.ONE,
+            hasEnded = true,
+        ).toPlayerUiState()
+
+        requireNotNull(uiState)
+        assertTrue(uiState.shuffleModeEnabled)
+        assertEquals(PlaybackRepeatMode.ONE, uiState.repeatMode)
+        assertTrue(uiState.hasEnded)
     }
 
     @Test
@@ -76,6 +93,7 @@ class PlayerUiStateTest {
         requireNotNull(uiState)
         assertEquals(UNKNOWN_TRACK_TITLE, uiState.title)
         assertEquals(TrackMetadata.UNKNOWN_ARTIST, uiState.artistLabel())
+        assertEquals(TrackMetadata.UNKNOWN_ALBUM, uiState.albumLabel())
         assertNull(uiState.album)
         assertNull(uiState.artworkUri)
     }
@@ -102,5 +120,11 @@ class PlayerUiStateTest {
         ).toPlayerUiState()
 
         assertEquals(first, later)
+    }
+
+    private fun assertNoModes(uiState: PlayerUiState) {
+        assertFalse(uiState.shuffleModeEnabled)
+        assertEquals(PlaybackRepeatMode.OFF, uiState.repeatMode)
+        assertFalse(uiState.hasEnded)
     }
 }

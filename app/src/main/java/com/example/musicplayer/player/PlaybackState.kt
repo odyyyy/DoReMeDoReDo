@@ -17,6 +17,10 @@ package com.example.musicplayer.player
  * @property positionMs Current playback position, or `0` when unknown.
  * @property hasNext True when a next playlist item exists.
  * @property hasPrevious True when a previous playlist item exists.
+ * @property shuffleModeEnabled True while Media3 shuffle mode is on.
+ * @property repeatMode The active Media3 repeat mode.
+ * @property hasEnded True when playback reached the end of the queue (repeat
+ *   off) and nothing is playing any more.
  * @property queue The current playlist and the position within it, kept in
  *   sync with the service-owned player.
  * @property playbackError User-facing message of the last playback failure,
@@ -31,6 +35,9 @@ data class PlaybackState(
     val positionMs: Long = 0L,
     val hasNext: Boolean = false,
     val hasPrevious: Boolean = false,
+    val shuffleModeEnabled: Boolean = false,
+    val repeatMode: PlaybackRepeatMode = PlaybackRepeatMode.OFF,
+    val hasEnded: Boolean = false,
     val queue: PlaybackQueue = PlaybackQueue(),
     val playbackError: String? = null,
 )

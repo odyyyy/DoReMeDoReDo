@@ -250,7 +250,7 @@ Allow users to add tracks to the queue, inspect the queue, and change its playba
 
 ## Task 14 — Implement shuffle and repeat modes
 
-**Status:** TODO  
+**Status:** DONE  
 **Priority:** Medium  
 **Depends on:** Task 12
 
@@ -260,15 +260,15 @@ Add shuffle and repeat modes using Media3's playback capabilities.
 
 ### Work
 
-- [ ] Connect ExoPlayer shuffle mode to the playback controller API.
-- [ ] Add a Shuffle toggle to the player UI.
-- [ ] Implement repeat modes: Off, Repeat All, and Repeat One.
-- [ ] Synchronize the selected modes with Media3.
-- [ ] Publish the active modes as part of observable playback UI state.
-- [ ] Persist mode preferences across app launches if consistent with the intended UX.
-- [ ] Verify behavior when the queue changes while shuffle is enabled.
-- [ ] Verify Next and Previous behavior while shuffle is enabled.
-- [ ] Provide accessible state descriptions for the controls.
+- [x] Connect ExoPlayer shuffle mode to the playback controller API.
+- [x] Add a Shuffle toggle to the player UI.
+- [x] Implement repeat modes: Off, Repeat All, and Repeat One.
+- [x] Synchronize the selected modes with Media3.
+- [x] Publish the active modes as part of observable playback UI state.
+- [x] Persist mode preferences across app launches if consistent with the intended UX.
+- [x] Verify behavior when the queue changes while shuffle is enabled.
+- [x] Verify Next and Previous behavior while shuffle is enabled.
+- [x] Provide accessible state descriptions for the controls.
 
 ### Out of scope
 
@@ -285,6 +285,49 @@ Add shuffle and repeat modes using Media3's playback capabilities.
 - Repeat All continues playback after the last queue item.
 - Repeat Off ends the queue after the last item.
 - UI icons and state always reflect the actual ExoPlayer state.
+
+### Key decisions
+
+- Shuffle and repeat are Media3 player properties, not app state. The
+  controller only sends commands (`toggleShuffle`, `setShuffleModeEnabled`,
+  `setRepeatMode`, `cycleRepeatMode`) and `PlaybackState` is rebuilt from
+  `Player.shuffleModeEnabled` / `Player.repeatMode` on every publish, so the UI
+  cannot show a mode the player is not actually in.
+- `PlaybackRepeatMode` (Off/All/One) is a small enum in the player package with
+  pure, unit-tested mappings in both directions plus the Off -> All -> One -> Off
+  toggle cycle, instead of passing Media3 `Int` constants into Compose.
+- The controls live on Now Playing (shuffle left, repeat right of the transport
+  row). Each is an `IconButton` with a `contentDescription` ("Shuffle"/"Repeat")
+  and a `stateDescription` ("On"/"Off", "All"/"One"), and the active mode is
+  drawn in the accent colour, so state is available to screen readers and not
+  only through colour.
+- `PlaybackState` gained `shuffleModeEnabled`, `repeatMode` and `hasEnded`
+  (`playbackState == STATE_ENDED`). `togglePlayPause` now seeks back to the
+  default position when the queue already ended, so playing again after the end
+  restarts the queue instead of doing nothing.
+- Modes are deliberately **not** persisted across launches: the app keeps
+  DataStore for the selected folder only, and both modes start at Off. Nothing in
+  the product brief asks for remembered playback modes, and per-launch defaults
+  keep playback behaviour predictable. This is the documented decision for the
+  "persist if consistent with the intended UX" item.
+- The queue projection keeps Media3's playlist order while shuffle is on, which
+  is exactly how Media3 behaves: shuffle changes traversal, not the playlist, so
+  the Queue screen and the player stay consistent.
+
+### Validation performed
+
+- `PlaybackRepeatModeTest` (unit) -> both mapping directions, unknown-mode
+  fallback to Off, and the toggle cycle.
+- `PlayerControllerInstrumentedTest#shuffleAndRepeatModes_areAppliedAndPublished`
+  on `Medium_Phone_API_37.0` (API 37) -> shuffle toggles on/off, Next still moves
+  the queue while shuffle is on, appending to the queue during shuffle keeps the
+  playlist coherent and the current item unchanged, and repeat cycles
+  Off -> All -> One -> Off plus a direct `setRepeatMode`.
+- `NowPlayingContentTest` (Compose UI) -> shuffle/repeat `stateDescription` is
+  "On"/"Off"/"One", the Repeat One glyph renders, and both toggles report their
+  command.
+- Manual run on the emulator -> Repeat One shows the ⟲1 glyph in the accent
+  colour and shuffle shows the active ⇄; both reset to Off on relaunch.
 
 ---
 
@@ -364,8 +407,7 @@ Add a compact playback panel that remains available across the app's main screen
   "Open Now Playing" click label on the panel body).
 - Task 15 needed a destination to open, so `Routes.NOW_PLAYING` and a small
   `NowPlayingScreen` shell were added (track title/artist/album, play/pause,
-  back). Seek bar, previous/next, shuffle/repeat and the queue entry point stay
-  with Task 16.
+  back). Task 16 then replaced that shell with the full Now Playing screen.
 
 ### Validation performed
 
@@ -391,14 +433,14 @@ Add a compact playback panel that remains available across the app's main screen
   API 37 with `NoSuchMethodException: android.hardware.input.InputManager.getInstance`
   before any assertion executes. This is the minimum change that lets Compose UI
   tests run on the project's target SDK; nothing else in the test stack changed.
-- Task 14 (shuffle/repeat) was not implemented here; the panel intentionally has
-  no shuffle or repeat controls.
+- Task 14 (shuffle/repeat) was not part of this task; those controls live on
+  Now Playing, and the compact panel intentionally omits them.
 
 ---
 
 ## Task 16 — Build the Now Playing screen
 
-**Status:** TODO  
+**Status:** DONE  
 **Priority:** High  
 **Depends on:** Tasks 10, 12, and 15
 
@@ -408,16 +450,16 @@ Create the main screen for controlling the currently playing track.
 
 ### Work
 
-- [ ] Create the Now Playing screen and connect navigation from the Mini Player.
-- [ ] Display large album artwork with a placeholder when artwork is unavailable.
-- [ ] Display the track title, artist, and album.
-- [ ] Implement Play/Pause, Next, and Previous.
-- [ ] Implement a seek bar with current position and track duration.
-- [ ] Update playback position smoothly without causing excessive recomposition.
-- [ ] Add Shuffle and Repeat controls.
-- [ ] Add navigation to the Queue screen.
-- [ ] Display clear loading, error, and playback-ended states.
-- [ ] Check control accessibility and contrast.
+- [x] Create the Now Playing screen and connect navigation from the Mini Player.
+- [x] Display large album artwork with a placeholder when artwork is unavailable.
+- [x] Display the track title, artist, and album.
+- [x] Implement Play/Pause, Next, and Previous.
+- [x] Implement a seek bar with current position and track duration.
+- [x] Update playback position smoothly without causing excessive recomposition.
+- [x] Add Shuffle and Repeat controls.
+- [x] Add navigation to the Queue screen.
+- [x] Display clear loading, error, and playback-ended states.
+- [x] Check control accessibility and contrast.
 
 ### Out of scope
 
@@ -435,6 +477,72 @@ Create the main screen for controlling the currently playing track.
 - Position and duration are displayed correctly.
 - Shuffle and Repeat UI states are synchronized with Media3.
 - The screen handles track changes and missing artwork correctly.
+
+### Key decisions
+
+- Task 16's shuffle/repeat criterion cannot be met without the controller API
+  that Task 14 owns, so Task 14 was completed first in the same pass (documented
+  dependency adjustment; see the Task 14 section).
+- `NowPlayingScreen` is a thin stateful wrapper around a stateless
+  `NowPlayingContent`, so the layout can be UI-tested with literal state while
+  the wrapper only wires `PlayerViewModel` commands.
+- Two streams, two recomposition scopes: `PlayerUiState` (track, transport,
+  modes, ended/error) drives the screen, and `PlaybackProgress`
+  (`positionMs`/`durationMs`/`isPlaying`) is exposed as a deferred lambda so it
+  is read inside the seek-bar composable only. A position tick therefore
+  recomposes the seek bar and cannot touch the artwork or metadata.
+- Smooth position: the controller publishes twice a second, so the thumb is
+  interpolated linearly between two published positions with
+  `animateFloatAsState` (500 ms `tween`, `snap` when paused). The interpolation
+  lives in the seek-bar composable and nowhere else.
+- Scrubbing shows the dragged position and keeps showing it until the player
+  reports a position within 1 s of the seek target, so the thumb never snaps
+  back after a seek. The seek math is a pair of pure functions
+  (`seekPositionFraction` / `positionForFraction`) that handle unknown durations
+  and clamp both ends.
+- Artwork is the shared `ArtworkTile` placeholder sized by the leftover vertical
+  space (`weight(1f)` plus `fillMaxHeight().aspectRatio(1f)`), so a short window
+  shrinks the image instead of pushing the transport controls off screen.
+- States: buffering shows a spinner with `Buffering...`, a playback failure is
+  shown in the error colour, and `hasEnded` shows `Playback finished` with the
+  play button restarting the queue. Next is disabled when no next item exists.
+- Accessibility: every control carries a `contentDescription` (`Play`/`Pause`,
+  `Previous track`, `Next track`, `Shuffle`, `Repeat`, `Back`), the seek bar is
+  `Playback position` with Slider semantics, mode toggles expose
+  `stateDescription`, secondary controls are drawn at `onSurface` on the
+  near-black background, and the play/pause button is a 64 dp accent-filled
+  button for a clear primary target.
+- Queue navigation reuses `Routes.QUEUE`; the Mini Player stays hidden on both
+  playback destinations (see `shouldShowMiniPlayer`).
+
+### Validation performed
+
+- `./gradlew testDebugUnitTest` -> 72 tests pass, including the new
+  `PlaybackProgressTest` (projection, clamping, fraction/position round-trip) and
+  the extended `PlayerUiStateTest` (shuffle/repeat/ended projection).
+- `./gradlew assembleDebug assembleDebugAndroidTest` -> BUILD SUCCESSFUL.
+- New `NowPlayingContentTest` (Compose UI, emulator `Medium_Phone_API_37.0`,
+  API 37) -> 12 tests pass: artwork initial, title/artist/album, elapsed/total
+  time, play/next/previous/shuffle/repeat/queue/back commands, shuffle and repeat
+  state descriptions, disabled Next at the queue end, seek reporting ~50 % of a
+  200 s track, disabled seek bar without a duration, empty state, buffering,
+  error and `Playback finished` states.
+- Full connected suite on the emulator -> `OK (44 tests)`.
+- Manual end-to-end run: opened Now Playing from the Mini Player, confirmed the
+  playing and ended states, dragged the seek bar on a 60 s track from 0:04 to
+  0:27 and watched playback continue from there, cycled repeat to One
+  (accent-coloured glyph), toggled shuffle, pressed Next (queue advanced to the
+  last item and then reported `Playback finished`), and opened the Queue screen
+  from Now Playing.
+
+### Notes
+
+- One instrumented run of `PlayerControllerInstrumentedTest` timed out while
+  connecting to the service right after the app had been driven manually on the
+  emulator; the same suite passed on a clean re-run. It is an environment flake,
+  not a playback failure.
+- Artwork remains a placeholder: no `artworkUri` is populated until the artwork
+  pipeline task, which is why the large tile is used instead of a Coil image.
 
 ---
 

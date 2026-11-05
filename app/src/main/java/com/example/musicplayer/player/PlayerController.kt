@@ -211,10 +211,17 @@ class PlayerController @Inject constructor(
 
     fun pause() = withController { it.pause() }
 
+    /**
+     * Toggles play/pause, restarting the current queue when playback already
+     * reached its end so the button is never a no-op.
+     */
     fun togglePlayPause() = withController { mediaController ->
         if (mediaController.isPlaying) {
             mediaController.pause()
         } else {
+            if (mediaController.playbackState == Player.STATE_ENDED) {
+                mediaController.seekToDefaultPosition()
+            }
             if (mediaController.playbackState == Player.STATE_IDLE) {
                 mediaController.prepare()
             }
@@ -233,6 +240,33 @@ class PlayerController @Inject constructor(
      * item after ~3 seconds, otherwise move to the previous playlist item.
      */
     fun seekToPrevious() = withController { it.seekToPrevious() }
+
+    /**
+     * Enables or disables Media3 shuffle mode.
+     *
+     * Shuffle only changes the order in which the existing playlist is
+     * traversed; the playlist itself (and therefore the queue projection shown
+     * by the UI) keeps its original order, exactly like Media3.
+     */
+    fun setShuffleModeEnabled(enabled: Boolean) = withController { mediaController ->
+        mediaController.shuffleModeEnabled = enabled
+    }
+
+    /** Flips Media3 shuffle mode. */
+    fun toggleShuffle() = withController { mediaController ->
+        mediaController.shuffleModeEnabled = !mediaController.shuffleModeEnabled
+    }
+
+    /** Applies [mode] to Media3. */
+    fun setRepeatMode(mode: PlaybackRepeatMode) = withController { mediaController ->
+        mediaController.repeatMode = mode.toPlayerRepeatMode()
+    }
+
+    /** Advances the repeat mode Off -> All -> One -> Off. */
+    fun cycleRepeatMode() = withController { mediaController ->
+        val current = PlaybackRepeatMode.fromPlayerRepeatMode(mediaController.repeatMode)
+        mediaController.repeatMode = current.next().toPlayerRepeatMode()
+    }
 
     /** Hides the last playback failure without changing playback. */
     fun dismissPlaybackError() {
@@ -323,6 +357,9 @@ class PlayerController @Inject constructor(
             positionMs = player.currentPosition.validOrZero(),
             hasNext = player.hasNextMediaItem(),
             hasPrevious = player.hasPreviousMediaItem(),
+            shuffleModeEnabled = player.shuffleModeEnabled,
+            repeatMode = PlaybackRepeatMode.fromPlayerRepeatMode(player.repeatMode),
+            hasEnded = player.playbackState == Player.STATE_ENDED,
             queue = cachedQueue,
             playbackError = lastError,
         )
