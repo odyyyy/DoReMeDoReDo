@@ -692,7 +692,7 @@ completed scan.
 
 ## Task 09 --- Build the Tracks library screen
 
-**Status:** TODO\
+**Status:** DONE\
 **Priority:** High\
 **Depends on:** Task 08
 
@@ -702,20 +702,20 @@ Display all indexed tracks in a usable, searchable, sortable list.
 
 ### Work
 
--   [ ] Create a domain `Track` model and map database entities to it.
--   [ ] Expose tracks from the repository as a Flow.
--   [ ] Create `GetTracksUseCase` if it adds useful separation.
--   [ ] Create `LibraryViewModel` with immutable UI state.
--   [ ] Build a Tracks list using `LazyColumn`.
--   [ ] Use stable keys based on track URI or another stable ID.
--   [ ] Display title and artist; show artwork only if available and
+-   [x] Create a domain `Track` model and map database entities to it.
+-   [x] Expose tracks from the repository as a Flow.
+-   [x] Create `GetTracksUseCase` if it adds useful separation.
+-   [x] Create `LibraryViewModel` with immutable UI state.
+-   [x] Build a Tracks list using `LazyColumn`.
+-   [x] Use stable keys based on track URI or another stable ID.
+-   [x] Display title and artist; show artwork only if available and
     useful at this stage.
--   [ ] Add search by title, artist, and album.
--   [ ] Debounce search input by approximately 250--300 ms.
--   [ ] Add sorting by title, artist, album, duration, and indexed/added
+-   [x] Add search by title, artist, and album.
+-   [x] Debounce search input by approximately 250--300 ms.
+-   [x] Add sorting by title, artist, album, duration, and indexed/added
     date where available.
--   [ ] Add clear empty, loading, and error states.
--   [ ] Keep the visual design minimal and consistent with `AGENT.md`.
+-   [x] Add clear empty, loading, and error states.
+-   [x] Keep the visual design minimal and consistent with `AGENT.md`.
 
 ### Acceptance criteria
 
@@ -730,6 +730,77 @@ Display all indexed tracks in a usable, searchable, sortable list.
 
 Playback is not part of this task. Track rows may be visually ready for
 a future click action, but do not add a fake playback implementation.
+
+### Key decisions
+
+-   `domain/model/Track` is a plain immutable model; `TrackEntity` is
+    mapped at the data boundary by `data/mapper/TrackMapper.kt`
+    (`TrackEntity.toTrack()`), so Room never leaks into the presentation
+    layer.
+-   `GetTracksUseCase` returns `Flow<List<Track>>` from
+    `TrackRepository.observeAll()`, so the list re-emits automatically
+    after scan writes without touching the filesystem. The pure
+    top-level `filterAndSortTracks(tracks, query, sort)` holds all
+    search/sort logic (case-insensitive comparison, stable order that
+    keeps Room's storage order for equal keys).
+-   `TracksUiState` is a second immutable stream, separate from the
+    folder/scan `LibraryUiState`: `Loading` / `Error(message)` /
+    `Ready(tracks, totalTracks, query, sort)`. `buildTracksUiState()`
+    combines the Room flow, the debounced query, and the sort, runs on
+    `Dispatchers.Default` (`flowOn`), and converts a failing source into
+    `Error` instead of crashing - Selection, sorting, and filtering
+    therefore never run on the main thread.
+-   Search debounce is 300 ms (`SEARCH_DEBOUNCE_MS`), applied only to a
+    non-blank query, so the first library render is immediate. Sort
+    changes bypass the debounce and apply on the next emission.
+-   `LibraryViewModel` gained `tracksUiState`, `searchQuery`,
+    `onSearchQueryChange()`, `onSortChange()`, and `retryTracks()`; the
+    tracks job is restartable so `Error` + Retry re-subscribes cleanly
+    instead of leaving a dead stream.
+-   `LibraryScreen` renders search field + sort dropdown above a
+    `LazyColumn` with `key = { it.uri }` (the stable primary key), a
+    "N of M tracks" count line, and dedicated states: `Loading library...`,
+    `Couldn't Load Tracks` + Retry, `No Tracks Found` + Rescan Folder
+    (empty library, with the scanning variant while a first scan runs),
+    and `No Matches` + Clear Search (filter yields nothing).
+-   `TrackItem` shows title, artist, and `m:ss` duration. Artwork is a
+    muted accent tile with the track's initial; real artwork arrives in
+    Task 19 through `Track.artworkUri`. Rows are intentionally not
+    clickable, per the task note (playback is Task 10).
+-   Track sort orders are the `TrackSort` enum (Title, Artist, Album,
+    Duration, Date added), defaulting to Title; text comparators use
+    `CASE_INSENSITIVE_ORDER`, duration/date sorts are ascending.
+
+### Validation performed
+
+-   `./gradlew testDebugUnitTest` -> BUILD SUCCESSFUL, 35 unit tests
+    passed: the 13 new `GetTracksUseCaseTest` cases (match across
+    title/artist/album, case-insensitivity, trimming, no-match result,
+    all five sort orders, filter-then-sort) and the 4 new
+    `TracksUiStateTest` cases (initial list renders without waiting for
+    the debounce, rapid keystrokes debounce and settle on the final
+    query, sort changes apply immediately, a failing source becomes
+    `Error`), plus the 18 pre-existing tests.
+-   `./gradlew assembleDebug` -> BUILD SUCCESSFUL.
+-   `./gradlew connectedDebugAndroidTest` on `Medium_Phone_API_37.0`
+    (API 37) -> BUILD SUCCESSFUL, 44 instrumented tests, 0 failures.
+-   Manual run on `Medium_Phone_API_37.0`: granted `/sdcard/Music`
+    through the SAF picker -> "Found 5 audio tracks" and 5 rows listed,
+    sorted by title with `key = uri`. Searching `mid` -> "1 of 5
+    tracks" with only *Midnight City*; searching `zzz` -> "0 of 5
+    tracks" + the `No Matches` / `Clear Search` state; clearing restores
+    all 5. Sorting by Duration reordered the list to 0:01, 0:02, 0:03,
+    0:04, 0:05. `am force-stop` + relaunch -> "Library loaded from Room -
+    5 tracks indexed" with zero scan activity in logcat (no
+    filesystem traversal, no rescan).
+
+### Known limitations
+
+-   Artist/album/location metadata of the seeded test WAVs is
+    "Unknown Artist/Album", so Album and Artist sorting were verified
+    by unit tests rather than visually.
+-   Search results count is shown as "N of M tracks"; a dedicated
+    album grouping surface arrives in Task 11.
 
 ------------------------------------------------------------------------
 
