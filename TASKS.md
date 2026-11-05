@@ -548,7 +548,7 @@ Create the main screen for controlling the currently playing track.
 
 ## Task 17 — Complete the Queue screen UX
 
-**Status:** TODO  
+**Status:** DONE  
 **Priority:** Medium  
 **Depends on:** Tasks 12, 13, and 16
 
@@ -558,16 +558,20 @@ Complete the user experience for viewing and interacting with the playback queue
 
 ### Work
 
-- [ ] Add navigation to Queue from Now Playing.
-- [ ] Display the current track and the remaining queue items.
-- [ ] Visually distinguish the current track from other items.
-- [ ] Show artist names and available artwork thumbnails.
-- [ ] Allow users to select another queue item for immediate playback.
-- [ ] Support item removal and reordering through the queue functionality from Task 13.
-- [ ] Scroll to the current track when the screen opens.
-- [ ] Preserve the queue during ordinary navigation between screens.
-- [ ] Add an empty state with a clear action to return to the Library.
-- [ ] Verify UI behavior during rapid track changes.
+- [x] Add navigation to Queue from Now Playing.
+- [x] Display the current track and the remaining queue items.
+- [x] Visually distinguish the current track from other items.
+- [x] Show artist names and available artwork thumbnails.
+- [x] Allow users to select another queue item for immediate playback.
+- [x] Support item removal and reordering through the queue functionality from Task 13.
+- [x] Scroll to the current track when the screen opens.
+- [x] Preserve the queue during ordinary navigation between screens.
+- [x] Add an empty state with a clear action to return to the Library.
+- [x] Verify UI behavior during rapid track changes.
+- [x] Rework fully design do modern, minimalistic, user-friendly, premium black-gold UI
+- [x] Remove legend "Buffering..." while go to another part of the track 
+- [x] Move "Tracks", "Albums", "Settings" (folder change, rescan) on the button as Tabs Layout Navigation with icons
+- [x] Do more User-friendly track search and sorting (use more icons) 
 
 ### Out of scope
 
@@ -584,6 +588,83 @@ Complete the user experience for viewing and interacting with the playback queue
 - Selecting an item starts it and updates the screen state.
 - Removing and reordering items do not cause state desynchronization.
 - The screen remains synchronized when queue changes originate elsewhere.
+
+### Key decisions
+
+- The four UI requirements added to this task (premium black-gold design,
+  removing the "Buffering..." caption, bottom Tabs navigation, richer search and
+  sort) are treated as a single presentation pass and were implemented together
+  with the Queue UX work, because they touch the same screens and the same
+  `AppNavigation` scaffold.
+- Single accent rule: `ui/theme/Color.kt` defines one gold accent (`#D4AF37`)
+  plus a soft/container variant; every screen uses the accent for at most one
+  active element (the current track, the primary action, the selected tab).
+  Surfaces stay neutral in the `surfaceContainer` hierarchy on a near-black
+  background, and no gradients or decorative shapes are used in chrome.
+- `ArtworkTile` is the shared placeholder: a quiet gradient square with a
+  hairline gold border and the title initial. It keeps one visual language until
+  the artwork pipeline populates `artworkUri` (Task 19).
+- Buffering is never a caption anymore: on Now Playing it is a silent
+  `CircularProgressIndicator` next to the metadata with a `Buffering`
+  `contentDescription` for accessibility, and the Mini Player shows the same tiny
+  spinner. Nothing stays on screen after the user seeks or moves to another part
+  of the track.
+- Bottom tabs replace the previous in-screen tab row: `Routes.TRACKS`,
+  `Routes.ALBUMS` and `Routes.SETTINGS` are owned by `TopLevelDestination`
+  (route, label, icon) and rendered by `AppBottomBar`. Folder selection, change
+  and rescan moved out of the library screen into Settings, so the tabs only
+  browse content and the library gate (`LibraryGate`) handles first-run and
+  revoked-access states for both tabs.
+- Tab state lives in the navigation back stack (`popUpTo` the start destination
+  with `saveState`/`restoreState`), not in a ViewModel, so switching tabs keeps
+  each tab's scroll position and the stack never grows.
+- The shared `LibraryViewModel` is created once at `AppNavigation` level, so tab
+  switching never re-triggers a folder check or a scan, and the search query,
+  sort order and scan state stay consistent across tabs.
+- Search and sort are one component (`SearchAndSortBar`): a search field with a
+  leading magnifier and a trailing icon clear action, and a sort menu whose
+  entries each carry an icon (`SortByAlpha`, `Person`, `Album`, `Timer`,
+  `CalendarToday`) with the active option in accent plus a check mark. The active
+  sort is mirrored in the tab subtitle, and Albums hides the sort control
+  (`showSort = false`) because albums have a single meaningful order.
+- `Modifier.imePadding()` on the root `Scaffold` keeps the Mini Player and the
+  tabs reachable while the search keyboard is open.
+- Queue selection is a new controller command (`seekToQueueItem`) that seeks and
+  resumes playback, so tapping a queue row behaves like picking a track; an
+  out-of-bounds index is ignored rather than disturbing playback.
+- Queue rows use fixed height and spacing so the long-press drag reorder can
+  convert pixels to row positions with a pure `queueDropTargetIndex` helper.
+
+### Validation performed
+
+- `./gradlew testDebugUnitTest` -> 75 tests pass (new
+  `MiniPlayerVisibilityTest` cases for the tab routes and pushed destinations).
+- `./gradlew assembleDebug assembleDebugAndroidTest` -> BUILD SUCCESSFUL.
+- Full connected suite on the emulator `Medium_Phone_API_37.0` (API 37) ->
+  `OK (45 tests)`, including the new
+  `selectingAQueueItem_startsThatItem` (selection starts the item; an invalid
+  index changes nothing) and the updated `NowPlayingContentTest` (queue button by
+  accessibility label, no `Buffering...` caption) and `MiniPlayerTest`.
+- Manual end-to-end run on the emulator, screenshots in `build/t17_*.png`: first
+  run folder card, Tracks list with artwork tiles and overflow menus, playing
+  state with the gold Mini Player, Now Playing (large tile, gold seek bar and
+  transport), Queue with the current row highlighted and drag handles, Albums
+  grid with the sort control hidden, Settings (folder card, Rescan/Change folder,
+  library stats), sort menu with icons, search filtering (`1 of 5 tracks`), and
+  the keyboard open with the tabs still reachable. Also checked album details and
+  that both playback screens hide the tabs.
+
+### Notes
+
+- One run of `PlayerControllerInstrumentedTest`
+  (`shuffleAndRepeatModes_areAppliedAndPublished`) timed out at 10 s immediately
+  after the app had been driven manually and reinstalled; the class and the full
+  suite passed on a clean re-run, matching the environment flake already noted
+  under Task 16.
+- Artwork is still the placeholder tile; real thumbnails arrive with the artwork
+  pipeline task.
+- Settings is the home for folder selection and rescan now; the library tabs were
+  reduced to browsing plus search/sort to keep the new tab bar meaningful.
 
 ---
 

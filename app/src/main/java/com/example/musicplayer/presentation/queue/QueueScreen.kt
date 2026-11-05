@@ -1,8 +1,10 @@
 package com.example.musicplayer.presentation.queue
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,15 +12,23 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DragHandle
+import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,7 +40,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -38,16 +47,21 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.musicplayer.player.PlaybackQueue
 import com.example.musicplayer.player.PlaybackTrack
+import com.example.musicplayer.presentation.components.ArtworkTile
+import com.example.musicplayer.presentation.components.MessageStatus
 import com.example.musicplayer.presentation.components.formatDuration
 
 /** Fixed row and spacing geometry so drag reordering can convert pixels to rows. */
-private val QueueRowHeight = 64.dp
-private val QueueRowSpacing = 4.dp
+private val QueueRowHeight = 68.dp
+private val QueueRowSpacing = 6.dp
 
 /**
  * Queue screen: the player's playlist in order, with the current item
- * highlighted. Long-press a row to drag it to a new position; the reorder is
- * written back to Media3 on drop. Each row can also be removed.
+ * highlighted.
+ *
+ * Tapping a row jumps playback to that item. Long-press a row to drag it to a new
+ * position; the reorder is written back to Media3 on drop, and each row can be
+ * removed. The list scrolls to the current item when the screen opens.
  */
 @Composable
 fun QueueScreen(
@@ -56,13 +70,25 @@ fun QueueScreen(
     viewModel: QueueViewModel = hiltViewModel(),
 ) {
     val queue by viewModel.queue.collectAsStateWithLifecycle()
+    val listState = rememberLazyListState()
+    var initialScrollDone by remember { mutableStateOf(false) }
+
+    // Bring the playing item into view once, when the queue first arrives.
+    LaunchedEffect(queue.currentIndex, queue.size) {
+        if (!initialScrollDone && queue.currentIndex >= 0 && queue.items.isNotEmpty()) {
+            listState.scrollToItem(queue.currentIndex)
+            initialScrollDone = true
+        }
+    }
 
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(16.dp),
+            .padding(horizontal = 16.dp),
     ) {
+        Spacer(modifier = Modifier.height(8.dp))
+
         QueueTopBar(
             itemCount = queue.size,
             onBackClicked = onBackClicked,
@@ -71,23 +97,32 @@ fun QueueScreen(
         Spacer(modifier = Modifier.height(12.dp))
 
         if (queue.isEmpty) {
-            EmptyQueueContent(
-                onBackClicked = onBackClicked,
+            Box(
                 modifier = Modifier.weight(1f),
-            )
+                contentAlignment = Alignment.Center,
+            ) {
+                MessageStatus(
+                    title = "Queue is Empty",
+                    message = "Add tracks with \"Play next\" or \"Add to queue\".",
+                    actionLabel = "Back to Library",
+                    onAction = onBackClicked,
+                )
+            }
         } else {
             Text(
                 text = "Long-press a track to reorder",
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             QueueList(
                 queue = queue,
-                onMove = { from, to -> viewModel.onMove(from, to) },
-                onRemove = { index -> viewModel.onRemove(index) },
+                listState = listState,
+                onSelect = viewModel::onSelect,
+                onMove = viewModel::onMove,
+                onRemove = viewModel::onRemove,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -100,15 +135,17 @@ private fun QueueTopBar(
     onBackClicked: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val colors = MaterialTheme.colorScheme
+
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(onClick = onBackClicked) {
-            Text(
-                text = "←",
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurface,
+            Icon(
+                imageVector = Icons.Rounded.ArrowBack,
+                contentDescription = "Back",
+                tint = colors.onSurface,
             )
         }
 
@@ -117,9 +154,8 @@ private fun QueueTopBar(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = "Queue",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.headlineSmall,
+                color = colors.onSurface,
             )
 
             Text(
@@ -129,7 +165,7 @@ private fun QueueTopBar(
                     else -> "$itemCount tracks"
                 },
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = colors.onSurfaceVariant,
             )
         }
     }
@@ -138,6 +174,8 @@ private fun QueueTopBar(
 @Composable
 private fun QueueList(
     queue: PlaybackQueue,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    onSelect: (Int) -> Unit,
     onMove: (Int, Int) -> Unit,
     onRemove: (Int) -> Unit,
     modifier: Modifier = Modifier,
@@ -148,6 +186,7 @@ private fun QueueList(
     val rowPitchPx = with(LocalDensity.current) { (QueueRowHeight + QueueRowSpacing).toPx() }
 
     LazyColumn(
+        state = listState,
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(QueueRowSpacing),
     ) {
@@ -157,6 +196,7 @@ private fun QueueList(
                 item = item,
                 isCurrent = index == queue.currentIndex,
                 isDragging = isDragging,
+                onSelect = { onSelect(index) },
                 onRemove = { onRemove(index) },
                 modifier = Modifier
                     .zIndex(if (isDragging) 1f else 0f)
@@ -199,42 +239,51 @@ private fun QueueRow(
     item: PlaybackTrack,
     isCurrent: Boolean,
     isDragging: Boolean,
+    onSelect: () -> Unit,
     onRemove: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val colors = MaterialTheme.colorScheme
+
     Row(
         modifier = modifier
             .fillMaxWidth()
             .height(QueueRowHeight)
-            .clip(RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(
                 when {
-                    isCurrent -> MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
-                    isDragging -> MaterialTheme.colorScheme.surfaceVariant
-                    else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                    isCurrent -> colors.primary.copy(alpha = 0.12f)
+                    isDragging -> colors.surfaceContainerHigh
+                    else -> colors.surfaceContainer
                 },
             )
-            .padding(start = 12.dp, end = 4.dp),
+            .clickable(onClickLabel = "Play this track", onClick = onSelect)
+            .padding(start = 4.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = "⠿",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Icon(
+            imageVector = Icons.Rounded.DragHandle,
+            contentDescription = "Reorder handle",
+            tint = colors.onSurfaceVariant.copy(alpha = 0.7f),
+            modifier = Modifier.size(20.dp),
         )
 
-        Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(6.dp))
+
+        ArtworkTile(
+            title = item.title,
+            modifier = Modifier.size(40.dp),
+            cornerRadius = 6.dp,
+        )
+
+        Spacer(modifier = Modifier.width(10.dp))
 
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = item.title,
                 style = MaterialTheme.typography.bodyLarge,
-                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
-                color = if (isCurrent) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
+                fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
+                color = if (isCurrent) colors.primary else colors.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -243,58 +292,36 @@ private fun QueueRow(
                 Text(
                     text = item.artist,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = colors.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
         }
 
+        if (isCurrent) {
+            Icon(
+                imageVector = Icons.Rounded.GraphicEq,
+                contentDescription = "Playing",
+                tint = colors.primary,
+                modifier = Modifier.size(16.dp),
+            )
+
+            Spacer(modifier = Modifier.width(10.dp))
+        }
+
         Text(
             text = formatDuration(item.durationMs),
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = colors.onSurfaceVariant,
         )
 
         IconButton(onClick = onRemove) {
-            Text(
-                text = "✕",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Icon(
+                imageVector = Icons.Rounded.Close,
+                contentDescription = "Remove from queue",
+                tint = colors.onSurfaceVariant,
             )
-        }
-    }
-}
-
-@Composable
-private fun EmptyQueueContent(
-    onBackClicked: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(
-            text = "Queue is Empty",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = "Add tracks with \"Play next\" or \"Add to queue\".",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        OutlinedButton(onClick = onBackClicked) {
-            Text("Back to Library")
         }
     }
 }

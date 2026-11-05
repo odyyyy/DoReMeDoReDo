@@ -7,9 +7,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CreateNewFolder
+import androidx.compose.material.icons.rounded.FolderOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -20,7 +26,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 /**
- * Screen component providing first-run folder selection and permission recovery state UIs.
+ * Screen component providing first-run folder selection and permission recovery
+ * state UIs.
  */
 @Composable
 fun FolderSelectionContent(
@@ -30,6 +37,9 @@ fun FolderSelectionContent(
     folderDisplayName: String? = null,
     onClearFolderClicked: (() -> Unit)? = null,
 ) {
+    val colors = MaterialTheme.colorScheme
+    val accent = if (isAccessRevoked) colors.error else colors.primary
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -39,10 +49,8 @@ fun FolderSelectionContent(
     ) {
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            ),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer),
         ) {
             Column(
                 modifier = Modifier
@@ -50,22 +58,23 @@ fun FolderSelectionContent(
                     .padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(
-                    text = if (isAccessRevoked) "⚠️" else "📁",
-                    style = MaterialTheme.typography.displayMedium,
-                    textAlign = TextAlign.Center,
+                Icon(
+                    imageVector = if (isAccessRevoked) {
+                        Icons.Rounded.FolderOff
+                    } else {
+                        Icons.Rounded.CreateNewFolder
+                    },
+                    contentDescription = null,
+                    tint = accent,
+                    modifier = Modifier.size(44.dp),
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text(
-                    text = if (isAccessRevoked) {
-                        "Folder Access Missing"
-                    } else {
-                        "Select Music Folder"
-                    },
+                    text = if (isAccessRevoked) "Folder Access Missing" else "Select Music Folder",
                     style = MaterialTheme.typography.headlineSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = colors.onSurface,
                     textAlign = TextAlign.Center,
                 )
 
@@ -73,12 +82,13 @@ fun FolderSelectionContent(
 
                 Text(
                     text = if (isAccessRevoked) {
-                        "Access to folder '${folderDisplayName ?: "Music"}' has been revoked or is no longer accessible. Please reselect your music folder to restore access."
+                        "Access to '${folderDisplayName ?: "Music"}' was revoked or is no " +
+                            "longer available. Choose the folder again to restore your library."
                     } else {
-                        "Choose a folder containing your music files to start building your local offline music library."
+                        "Pick the folder that holds your music. Everything stays on this device."
                     },
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = colors.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                 )
 
@@ -86,11 +96,9 @@ fun FolderSelectionContent(
 
                 Button(
                     onClick = onSelectFolderClicked,
-                    modifier = Modifier.fillMaxWidth(0.8f),
+                    modifier = Modifier.fillMaxWidth(0.85f),
                 ) {
-                    Text(
-                        text = if (isAccessRevoked) "Reselect Folder" else "Select Folder"
-                    )
+                    Text(if (isAccessRevoked) "Choose Folder Again" else "Select Folder")
                 }
 
                 if (isAccessRevoked && onClearFolderClicked != null) {
@@ -98,7 +106,7 @@ fun FolderSelectionContent(
 
                     OutlinedButton(
                         onClick = onClearFolderClicked,
-                        modifier = Modifier.fillMaxWidth(0.8f),
+                        modifier = Modifier.fillMaxWidth(0.85f),
                     ) {
                         Text("Clear Selection")
                     }

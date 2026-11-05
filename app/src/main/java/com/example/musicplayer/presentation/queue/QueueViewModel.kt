@@ -16,9 +16,9 @@ import kotlinx.coroutines.flow.stateIn
  * ViewModel for the Queue screen.
  *
  * The queue is read directly from [PlayerController.state] and never copied, so
- * reorders and removals are written straight back to Media3 and any change that
- * originates in the service is reflected automatically. All screens observing
- * playback therefore stay in sync.
+ * reorders, removals and item selection are written straight back to Media3 and
+ * any change that originates in the service is reflected automatically. All
+ * screens observing playback therefore stay in sync.
  */
 @HiltViewModel
 class QueueViewModel @Inject constructor(
@@ -33,6 +33,11 @@ class QueueViewModel @Inject constructor(
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = PlaybackQueue(),
         )
+
+    /** Jumps playback to the queue item at [index]. */
+    fun onSelect(index: Int) {
+        playerController.seekToQueueItem(index)
+    }
 
     /** Moves the queue item at [fromIndex] to [toIndex]. */
     fun onMove(fromIndex: Int, toIndex: Int) {

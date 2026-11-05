@@ -207,6 +207,24 @@ class PlayerController @Inject constructor(
         }
     }
 
+    /**
+     * Jumps playback to the queue item at [index] and starts it.
+     *
+     * Selecting a queue row is an explicit request to hear that item, so a paused
+     * player resumes; nothing changes when the index is out of bounds.
+     */
+    fun seekToQueueItem(index: Int) = withController { mediaController ->
+        if (index !in 0 until mediaController.mediaItemCount) return@withController
+
+        mediaController.seekToDefaultPosition(index)
+        if (!mediaController.isPlaying) {
+            if (mediaController.playbackState == Player.STATE_IDLE) {
+                mediaController.prepare()
+            }
+            mediaController.play()
+        }
+    }
+
     fun play() = withController { it.play() }
 
     fun pause() = withController { it.pause() }

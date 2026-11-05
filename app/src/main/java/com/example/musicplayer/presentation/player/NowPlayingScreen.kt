@@ -18,13 +18,25 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.RepeatOne
+import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -61,11 +73,11 @@ private const val SEEK_SETTLE_TOLERANCE_MS = 1_000L
  * Now Playing: the full playback surface.
  *
  * Every control is forwarded to [PlayerViewModel] and therefore to the single
- * player owned by `PlaybackService`; the screen never holds a player of its
- * own. It reads two state streams: [PlayerUiState] for track, transport and
- * mode changes, and [PlaybackProgress] for the seek bar, which is collected
- * inside the seek-bar composable only (via the deferred [NowPlayingContent]
- * `progress` lambda) so position ticks do not recompose the whole screen.
+ * player owned by `PlaybackService`; the screen never holds a player of its own.
+ * It reads two state streams: [PlayerUiState] for track, transport and mode
+ * changes, and [PlaybackProgress] for the seek bar, which is collected inside the
+ * seek-bar composable only (via the deferred [NowPlayingContent] `progress`
+ * lambda) so position ticks do not recompose the whole screen.
  */
 @Composable
 fun NowPlayingScreen(
@@ -96,8 +108,7 @@ fun NowPlayingScreen(
 /**
  * Stateless Now Playing layout.
  *
- * @param state Track, transport and mode state, or `null` when nothing is
- *   loaded.
+ * @param state Track, transport and mode state, or `null` when nothing is loaded.
  * @param progress Deferred seek-bar state; reading it inside the seek bar keeps
  *   position updates from recomposing the artwork and metadata.
  */
@@ -115,10 +126,12 @@ fun NowPlayingContent(
     onSeekTo: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val colors = MaterialTheme.colorScheme
+
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(colors.background)
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
         NowPlayingHeader(onBackClicked = onBackClicked)
@@ -143,39 +156,57 @@ fun NowPlayingContent(
                 modifier = Modifier
                     .fillMaxHeight()
                     .aspectRatio(1f),
-                cornerRadius = 12.dp,
+                cornerRadius = 14.dp,
                 textStyle = MaterialTheme.typography.displayMedium,
             )
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
-        Text(
-            text = state.title,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = state.title,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = colors.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
 
-        Text(
-            text = state.artistLabel(),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+                Text(
+                    text = state.artistLabel(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colors.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
 
-        Text(
-            text = state.albumLabel(),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+                Text(
+                    text = state.albumLabel(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
 
-        Spacer(modifier = Modifier.height(8.dp))
+            // Buffering is shown as a silent indicator, never as a caption that
+            // would stay on screen after the user moves elsewhere in the track.
+            if (state.isBuffering) {
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .size(18.dp)
+                        .semantics { contentDescription = "Buffering" },
+                    strokeWidth = 2.dp,
+                    color = colors.primary,
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
 
         SeekBar(
             progress = progress,
@@ -186,19 +217,17 @@ fun NowPlayingContent(
             Text(
                 text = state.errorMessage,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
+                color = colors.error,
             )
-        } else if (state.isBuffering) {
-            BufferingStatus()
         } else if (state.hasEnded) {
             Text(
                 text = "Playback finished",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = colors.onSurfaceVariant,
             )
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         TransportControls(
             state = state,
@@ -209,15 +238,19 @@ fun NowPlayingContent(
             onCycleRepeatMode = onCycleRepeatMode,
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            OutlinedButton(onClick = onOpenQueue) {
-                Text("Queue")
+            FilledTonalIconButton(onClick = onOpenQueue) {
+                Icon(
+                    imageVector = Icons.Rounded.QueueMusic,
+                    contentDescription = "Queue",
+                    tint = colors.primary,
+                )
             }
         }
     }
@@ -233,11 +266,10 @@ private fun NowPlayingHeader(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(onClick = onBackClicked) {
-            Text(
-                text = "←",
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.semantics { contentDescription = "Back" },
+            Icon(
+                imageVector = Icons.Rounded.ArrowBack,
+                contentDescription = "Back",
+                tint = MaterialTheme.colorScheme.onSurface,
             )
         }
 
@@ -246,7 +278,6 @@ private fun NowPlayingHeader(
         Text(
             text = "Now Playing",
             style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface,
         )
     }
@@ -267,6 +298,7 @@ private fun SeekBar(
     onSeekTo: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val colors = MaterialTheme.colorScheme
     val current = progress()
     val durationMs = current?.durationMs ?: 0L
     val isSeekable = current?.isSeekable == true
@@ -302,6 +334,14 @@ private fun SeekBar(
             onValueChange = { value -> scrubbedMs = positionForFraction(value, durationMs) },
             onValueChangeFinished = { scrubbedMs?.let(onSeekTo) },
             enabled = isSeekable,
+            colors = SliderDefaults.colors(
+                thumbColor = colors.primary,
+                activeTrackColor = colors.primary,
+                inactiveTrackColor = colors.surfaceContainerHigh,
+                disabledThumbColor = colors.onSurfaceVariant,
+                disabledActiveTrackColor = colors.surfaceContainerHigh,
+                disabledInactiveTrackColor = colors.surfaceContainerHigh,
+            ),
             modifier = Modifier
                 .fillMaxWidth()
                 .semantics { contentDescription = "Playback position" },
@@ -314,13 +354,13 @@ private fun SeekBar(
             Text(
                 text = formatDuration(positionForFraction(fraction, durationMs)),
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = colors.onSurfaceVariant,
             )
 
             Text(
                 text = formatDuration(durationMs),
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = colors.onSurfaceVariant,
             )
         }
     }
@@ -336,13 +376,15 @@ private fun TransportControls(
     onCycleRepeatMode: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val colors = MaterialTheme.colorScheme
+
     Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         ModeButton(
-            glyph = "⇄",
+            icon = Icons.Rounded.Shuffle,
             label = "Shuffle",
             stateDescription = if (state.shuffleModeEnabled) "On" else "Off",
             isActive = state.shuffleModeEnabled,
@@ -350,11 +392,10 @@ private fun TransportControls(
         )
 
         IconButton(onClick = onPrevious) {
-            Text(
-                text = "⏮",
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.semantics { contentDescription = "Previous track" },
+            Icon(
+                imageVector = Icons.Rounded.SkipPrevious,
+                contentDescription = "Previous track",
+                tint = colors.onSurface,
             )
         }
 
@@ -362,16 +403,14 @@ private fun TransportControls(
             onClick = onTogglePlayPause,
             modifier = Modifier.size(64.dp),
             colors = IconButtonDefaults.filledIconButtonColors(
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
+                containerColor = colors.primary,
+                contentColor = colors.onPrimary,
             ),
         ) {
-            Text(
-                text = if (state.isPlaying) "❚❚" else "▶",
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.semantics {
-                    contentDescription = if (state.isPlaying) "Pause" else "Play"
-                },
+            Icon(
+                imageVector = if (state.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                contentDescription = if (state.isPlaying) "Pause" else "Play",
+                modifier = Modifier.size(32.dp),
             )
         }
 
@@ -379,20 +418,19 @@ private fun TransportControls(
             onClick = onNext,
             enabled = state.hasNext,
         ) {
-            Text(
-                text = "⏭",
-                style = MaterialTheme.typography.titleLarge,
-                color = if (state.hasNext) {
-                    MaterialTheme.colorScheme.onSurface
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                },
-                modifier = Modifier.semantics { contentDescription = "Next track" },
+            Icon(
+                imageVector = Icons.Rounded.SkipNext,
+                contentDescription = "Next track",
+                tint = if (state.hasNext) colors.onSurface else colors.onSurfaceVariant.copy(alpha = 0.4f),
             )
         }
 
         ModeButton(
-            glyph = if (state.repeatMode == PlaybackRepeatMode.ONE) "⟲1" else "⟲",
+            icon = if (state.repeatMode == PlaybackRepeatMode.ONE) {
+                Icons.Rounded.RepeatOne
+            } else {
+                Icons.Rounded.Repeat
+            },
             label = "Repeat",
             stateDescription = when (state.repeatMode) {
                 PlaybackRepeatMode.OFF -> "Off"
@@ -408,13 +446,15 @@ private fun TransportControls(
 /** Toggle button whose active state is exposed to accessibility services. */
 @Composable
 private fun ModeButton(
-    glyph: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     stateDescription: String,
     isActive: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val colors = MaterialTheme.colorScheme
+
     IconButton(
         onClick = onClick,
         modifier = modifier.semantics {
@@ -422,38 +462,10 @@ private fun ModeButton(
             this.stateDescription = stateDescription
         },
     ) {
-        Text(
-            text = glyph,
-            style = MaterialTheme.typography.titleMedium,
-            color = if (isActive) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-        )
-    }
-}
-
-@Composable
-private fun BufferingStatus(modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        CircularProgressIndicator(
-            modifier = Modifier
-                .size(14.dp)
-                .semantics { contentDescription = "Buffering" },
-            strokeWidth = 2.dp,
-            color = MaterialTheme.colorScheme.primary,
-        )
-
-        Spacer(modifier = Modifier.width(8.dp))
-
-        Text(
-            text = "Buffering…",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (isActive) colors.primary else colors.onSurfaceVariant,
         )
     }
 }
@@ -468,6 +480,7 @@ private fun EmptyPlayerContent(modifier: Modifier = Modifier) {
         Text(
             text = "Nothing is playing",
             style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center,
         )

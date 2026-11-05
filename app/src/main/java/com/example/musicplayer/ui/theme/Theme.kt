@@ -5,26 +5,45 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 
 private val MusicPlayerColorScheme = darkColorScheme(
-    primary = Accent,
-    onPrimary = BackgroundDark,
-    secondary = Accent,
-    onSecondary = BackgroundDark,
-    tertiary = Accent,
-    background = BackgroundDark,
-    onBackground = OnBackgroundDark,
-    surface = SurfaceDark,
-    onSurface = OnBackgroundDark,
-    surfaceVariant = SurfaceVariantDark,
-    onSurfaceVariant = OnSurfaceVariantDark,
+    primary = Gold,
+    onPrimary = OnGold,
+    primaryContainer = GoldContainer,
+    onPrimaryContainer = GoldSoft,
+    secondary = GoldSoft,
+    onSecondary = OnGold,
+    secondaryContainer = GoldContainerMuted,
+    onSecondaryContainer = GoldSoft,
+    tertiary = GoldSoft,
+    onTertiary = OnGold,
+    background = BackgroundBlack,
+    onBackground = OnDark,
+    surface = SurfaceBlack,
+    onSurface = OnDark,
+    surfaceVariant = SurfaceVariantBlack,
+    onSurfaceVariant = OnDarkMuted,
+    surfaceContainerLowest = BackgroundBlack,
+    surfaceContainerLow = SurfaceBlack,
+    surfaceContainer = SurfaceVariantBlack,
+    surfaceContainerHigh = SurfaceElevatedBlack,
+    surfaceContainerHighest = SurfaceElevatedBlack,
     outline = OutlineDark,
+    outlineVariant = OutlineFaint,
+    error = ErrorWarm,
+    onError = OnErrorWarm,
+    errorContainer = ErrorContainerDark,
+    onErrorContainer = OnErrorContainerDark,
+    inverseSurface = OnDark,
+    inverseOnSurface = BackgroundBlack,
+    inversePrimary = GoldContainer,
 )
 
 /**
  * Application theme.
  *
- * The product uses a single dark, near-black palette rather than following the
- * system light/dark setting or Material You dynamic colour. This keeps the
- * visual direction minimal and predictable.
+ * The product uses a single premium black-and-gold palette rather than following
+ * the system light/dark setting or Material You dynamic colour. Gold is reserved
+ * for the active element of each screen (current track, active tab, primary
+ * action) so the interface stays minimal and calm.
  */
 @Composable
 fun MusicPlayerTheme(content: @Composable () -> Unit) {

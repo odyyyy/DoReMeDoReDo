@@ -53,11 +53,6 @@ class LibraryViewModel @Inject constructor(
     /** Folder/scan lifecycle state of the Library screen. */
     val uiState: StateFlow<LibraryUiState> = _uiState.asStateFlow()
 
-    private val _selectedTab = MutableStateFlow(LibraryTab.TRACKS)
-
-    val selectedTab: StateFlow<LibraryTab> = _selectedTab.asStateFlow()
-
-    /** Immediate search input for the text field; filtering uses a debounced copy. */
     private val _searchQuery = MutableStateFlow("")
 
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -89,10 +84,6 @@ class LibraryViewModel @Inject constructor(
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = AlbumsUiState.Loading,
     )
-
-    fun onTabSelected(tab: LibraryTab) {
-        _selectedTab.value = tab
-    }
 
     /**
      * Current track + play/pause state for the row highlight. Derived without

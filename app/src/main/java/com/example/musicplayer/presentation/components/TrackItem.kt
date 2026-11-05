@@ -1,6 +1,5 @@
 package com.example.musicplayer.presentation.components
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,9 +11,15 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.PlaylistAdd
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -25,7 +30,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -33,17 +37,15 @@ import com.example.musicplayer.domain.model.Track
 import java.util.Locale
 
 /**
- * One row of the Tracks list: artwork placeholder, title, artist, duration.
+ * One row of a track list: artwork tile, title, artist, duration, and an optional
+ * overflow menu with the queue actions.
  *
- * Tapping the row starts playback from that track. The currently loaded track
- * is highlighted; [isPlaying] distinguishes "playing" from "paused".
+ * Tapping the row starts playback from that track. The loaded track is marked
+ * with the accent colour plus a state icon, so it is identifiable without relying
+ * on colour alone.
  *
- * When [onPlayNext] or [onAddToQueue] is provided, an overflow menu exposes the
+ * When [onPlayNext] or [onAddToQueue] is provided, the overflow menu exposes the
  * queue actions without giving up the whole-row tap target.
- *
- * Artwork: real artwork renders only once artwork caching (Task 19) starts
- * populating `Track.artworkUri`. Until then a neutral placeholder tile is
- * shown, so the row never depends on missing images.
  */
 @Composable
 fun TrackItem(
@@ -55,15 +57,21 @@ fun TrackItem(
     onAddToQueue: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
+    val colors = MaterialTheme.colorScheme
+
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 56.dp)
+            .heightIn(min = 60.dp)
             .clickable(onClick = onClick)
             .padding(horizontal = 4.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ArtworkPlaceholder(title = track.title)
+        ArtworkTile(
+            title = track.title,
+            modifier = Modifier.size(44.dp),
+            cornerRadius = 6.dp,
+        )
 
         Spacer(modifier = Modifier.width(12.dp))
 
@@ -71,12 +79,8 @@ fun TrackItem(
             Text(
                 text = track.title,
                 style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
-                color = if (isCurrent) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
+                fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
+                color = if (isCurrent) colors.primary else colors.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -86,7 +90,7 @@ fun TrackItem(
             Text(
                 text = track.artist,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = colors.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -94,19 +98,20 @@ fun TrackItem(
 
         if (isCurrent) {
             Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = if (isPlaying) "▶" else "❚❚",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
+            Icon(
+                imageVector = if (isPlaying) Icons.Rounded.GraphicEq else Icons.Rounded.Pause,
+                contentDescription = if (isPlaying) "Playing" else "Paused",
+                tint = colors.primary,
+                modifier = Modifier.size(16.dp),
             )
         }
 
-        Spacer(modifier = Modifier.width(8.dp))
+        Spacer(modifier = Modifier.width(10.dp))
 
         Text(
             text = formatDuration(track.durationMs),
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = colors.onSurfaceVariant,
         )
 
         if (onPlayNext != null || onAddToQueue != null) {
@@ -129,10 +134,10 @@ private fun TrackOverflowMenu(
 
     Box(modifier = modifier) {
         IconButton(onClick = { expanded = true }) {
-            Text(
-                text = "⋮",
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Icon(
+                imageVector = Icons.Rounded.MoreVert,
+                contentDescription = "Track actions",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
@@ -143,6 +148,9 @@ private fun TrackOverflowMenu(
             if (onPlayNext != null) {
                 DropdownMenuItem(
                     text = { Text("Play next") },
+                    leadingIcon = {
+                        Icon(Icons.Rounded.PlayArrow, contentDescription = null)
+                    },
                     onClick = {
                         expanded = false
                         onPlayNext()
@@ -153,6 +161,9 @@ private fun TrackOverflowMenu(
             if (onAddToQueue != null) {
                 DropdownMenuItem(
                     text = { Text("Add to queue") },
+                    leadingIcon = {
+                        Icon(Icons.Rounded.PlaylistAdd, contentDescription = null)
+                    },
                     onClick = {
                         expanded = false
                         onAddToQueue()
@@ -160,30 +171,6 @@ private fun TrackOverflowMenu(
                 )
             }
         }
-    }
-}
-
-/**
- * Minimal artwork stand-in: a muted tile carrying the track's initial.
- */
-@Composable
-private fun ArtworkPlaceholder(
-    title: String,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier = modifier
-            .size(40.dp)
-            .clip(RoundedCornerShape(4.dp))
-            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
-        )
     }
 }
 

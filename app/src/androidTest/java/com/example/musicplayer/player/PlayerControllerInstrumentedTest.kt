@@ -279,6 +279,45 @@ class PlayerControllerInstrumentedTest {
         assertEquals(PlaybackRepeatMode.ONE, direct.repeatMode)
     }
 
+    /**
+     * Selecting a queue item jumps playback to it and starts it, and an
+     * out-of-bounds index is ignored instead of disturbing playback.
+     */
+    @Test
+    fun selectingAQueueItem_startsThatItem() = runBlocking {
+        withTimeout(CONNECT_TIMEOUT_MS) {
+            controller.state.first { it.isConnected }
+        }
+
+        val first = wavTrack("select-a", "A")
+        val second = wavTrack("select-b", "B")
+        val third = wavTrack("select-c", "C")
+        controller.setQueue(listOf(first, second, third), startIndex = 0)
+        withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first { it.queue.size == 3 && it.isPlaying }
+        }
+
+        controller.pause()
+        withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first { !it.isPlaying }
+        }
+
+        controller.seekToQueueItem(2)
+        val selected = withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first { it.queue.currentIndex == 2 && it.isPlaying }
+        }
+        assertEquals(third.uri, selected.queue.currentItem?.mediaId)
+
+        // Out-of-bounds selection must not change the current item.
+        controller.seekToQueueItem(99)
+        controller.pause()
+        val afterInvalidSelection = withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first { !it.isPlaying }
+        }
+        assertEquals(2, afterInvalidSelection.queue.currentIndex)
+        assertEquals(third.uri, afterInvalidSelection.queue.currentItem?.mediaId)
+    }
+
     /** A 30 s silent WAV track so playback never advances mid-test. */
     private fun wavTrack(name: String, title: String): Track {        val file = createWavFile("queue-$name-${System.nanoTime()}.wav", durationMs = 30_000)
         return Track(

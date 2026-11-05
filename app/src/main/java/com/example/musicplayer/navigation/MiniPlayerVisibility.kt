@@ -1,21 +1,20 @@
 package com.example.musicplayer.navigation
 
 /**
- * Decides whether the persistent Mini Player belongs on the current
- * destination.
+ * Decides which parts of the bottom chrome belong on the current destination.
  *
- * The panel is part of the browsing experience: it stays visible on the Library
- * and Album Details screens so playback is one tap away. It is deliberately
- * hidden on Now Playing and Queue, which are playback surfaces themselves and
- * would otherwise stack two player controls on top of each other.
- *
- * @param route The `route` of the current back stack destination, or `null`
- *   before the first destination is resolved.
+ * - The **bottom navigation** shows on the three top-level tabs only.
+ * - The **Mini Player** shows on the browsing destinations (the three tabs and
+ *   album details) so playback is always one tap away. It is deliberately hidden
+ *   on Now Playing and Queue, which are playback surfaces themselves and would
+ *   otherwise stack a second set of transport controls.
  */
-internal fun shouldShowMiniPlayer(route: String?): Boolean = when (route) {
-    Routes.LIBRARY,
-    Routes.ALBUM_DETAIL,
-    -> true
+internal fun shouldShowBottomBar(route: String?): Boolean = route in TopLevelRoutes
 
-    else -> false
+/** True when the Mini Player belongs on [route]. */
+internal fun shouldShowMiniPlayer(route: String?): Boolean = when (route) {
+    Routes.ALBUM_DETAIL -> true
+    else -> shouldShowBottomBar(route)
 }
+
+private val TopLevelRoutes: Set<String> = TopLevelDestination.entries.mapTo(mutableSetOf()) { it.route }

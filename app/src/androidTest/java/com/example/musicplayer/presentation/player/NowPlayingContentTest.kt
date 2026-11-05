@@ -87,7 +87,7 @@ class NowPlayingContentTest {
         composeRule.onNodeWithContentDescription("Previous track").performClick()
         composeRule.onNodeWithContentDescription("Shuffle").performClick()
         composeRule.onNodeWithContentDescription("Repeat").performClick()
-        composeRule.onNodeWithText("Queue").performClick()
+        composeRule.onNodeWithContentDescription("Queue").performClick()
         composeRule.onNodeWithContentDescription("Back").performClick()
 
         assertEquals(1, togglePlayPauseCount)
@@ -114,7 +114,6 @@ class NowPlayingContentTest {
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "On"))
         composeRule.onNodeWithContentDescription("Repeat")
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "One"))
-        composeRule.onNodeWithText("⟲1").assertExists()
     }
 
     @Test
@@ -168,7 +167,8 @@ class NowPlayingContentTest {
     fun bufferingErrorAndEndedStatesAreDisplayed() {
         setContent(state(isBuffering = true))
         composeRule.onNodeWithContentDescription("Buffering").assertExists()
-        composeRule.onNodeWithText("Buffering…").assertIsDisplayed()
+        // The buffering caption is gone: loading is shown as a silent indicator.
+        composeRule.onNodeWithText("Buffering...").assertDoesNotExist()
     }
 
     @Test

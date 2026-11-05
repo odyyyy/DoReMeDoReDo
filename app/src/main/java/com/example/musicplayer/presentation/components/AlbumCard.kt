@@ -1,8 +1,5 @@
 package com.example.musicplayer.presentation.components
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -15,17 +12,17 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.musicplayer.domain.model.Album
 
 /**
- * Grid card for an [Album] displaying artwork placeholder, album title, artist,
- * and track count.
+ * Grid card for an [Album]: artwork tile, title, artist, and track count.
+ *
+ * The card is deliberately quiet — a low-contrast surface with no elevation —
+ * so the artwork grid reads as one calm surface.
  */
 @Composable
 fun AlbumCard(
@@ -34,23 +31,24 @@ fun AlbumCard(
     modifier: Modifier = Modifier,
 ) {
     Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
         ),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(14.dp),
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            AlbumArtworkPlaceholder(
+        Column(modifier = Modifier.padding(10.dp)) {
+            ArtworkTile(
                 title = album.title,
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1f),
+                cornerRadius = 10.dp,
+                textStyle = MaterialTheme.typography.headlineLarge,
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             Text(
                 text = album.title,
@@ -76,28 +74,8 @@ fun AlbumCard(
             Text(
                 text = if (album.trackCount == 1) "1 track" else "${album.trackCount} tracks",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
             )
         }
-    }
-}
-
-@Composable
-private fun AlbumArtworkPlaceholder(
-    title: String,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?",
-            style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
-        )
     }
 }

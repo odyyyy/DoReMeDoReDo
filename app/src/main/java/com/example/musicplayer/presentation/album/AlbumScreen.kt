@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -15,36 +14,35 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.musicplayer.domain.model.Album
-import com.example.musicplayer.domain.model.Track
+import com.example.musicplayer.presentation.components.ArtworkTile
+import com.example.musicplayer.presentation.components.MessageStatus
+import com.example.musicplayer.presentation.components.PlaybackErrorBanner
 import com.example.musicplayer.presentation.components.TrackItem
 import com.example.musicplayer.presentation.components.formatDuration
 import com.example.musicplayer.presentation.library.PlaybackHighlight
 
 /**
- * Album Details screen displaying an album's cover, metadata, action button,
- * and its track list.
+ * Album Details screen displaying an album's artwork, metadata, play action, and
+ * its track list.
  *
  * Selecting any track starts playback with this album's track list as the queue.
  */
@@ -62,50 +60,48 @@ fun AlbumScreen(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(16.dp),
+            .padding(horizontal = 16.dp),
     ) {
+        Spacer(modifier = Modifier.height(8.dp))
+
         TopBar(onBackClicked = onBackClicked)
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         if (playbackError != null) {
             PlaybackErrorBanner(
                 message = playbackError.orEmpty(),
-                onDismiss = { viewModel.dismissPlaybackError() },
+                onDismiss = viewModel::dismissPlaybackError,
             )
             Spacer(modifier = Modifier.height(8.dp))
         }
 
         when (val state = uiState) {
-            is AlbumUiState.Loading -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                }
+            is AlbumUiState.Loading -> Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator(
+                    color = MaterialTheme.colorScheme.primary,
+                    strokeWidth = 2.dp,
+                )
             }
 
-            is AlbumUiState.NotFound -> {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    Text(
-                        text = "Album Not Found",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    OutlinedButton(onClick = onBackClicked) {
-                        Text("Back to Library")
-                    }
-                }
+            is AlbumUiState.NotFound -> Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center,
+            ) {
+                MessageStatus(
+                    title = "Album Not Found",
+                    message = "This album is no longer in the library.",
+                    actionLabel = "Back to Library",
+                    onAction = onBackClicked,
+                    isError = true,
+                )
             }
 
             is AlbumUiState.Ready -> {
@@ -121,7 +117,7 @@ fun AlbumScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     items(
                         items = state.tracks,
@@ -153,17 +149,18 @@ private fun TopBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(onClick = onBackClicked) {
-            Text(
-                text = "←",
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurface,
+            Icon(
+                imageVector = Icons.Rounded.ArrowBack,
+                contentDescription = "Back",
+                tint = MaterialTheme.colorScheme.onSurface,
             )
         }
+
         Spacer(modifier = Modifier.width(8.dp))
+
         Text(
             text = "Album",
             style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface,
         )
     }
@@ -176,24 +173,18 @@ private fun AlbumHeader(
     onPlayClicked: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val colors = MaterialTheme.colorScheme
+
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier
-                .size(96.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = album.title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?",
-                style = MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
+        ArtworkTile(
+            title = album.title,
+            modifier = Modifier.size(104.dp),
+            cornerRadius = 12.dp,
+            textStyle = MaterialTheme.typography.headlineMedium,
+        )
 
         Spacer(modifier = Modifier.width(16.dp))
 
@@ -201,18 +192,17 @@ private fun AlbumHeader(
             Text(
                 text = album.title,
                 style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = colors.onSurface,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(2.dp))
 
             Text(
                 text = album.artist,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = colors.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -220,47 +210,29 @@ private fun AlbumHeader(
             Spacer(modifier = Modifier.height(4.dp))
 
             Text(
-                text = "${album.trackCount} tracks • ${formatDuration(totalDurationMs)}",
+                text = "${album.trackCount} tracks · ${formatDuration(totalDurationMs)}",
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = colors.primary.copy(alpha = 0.85f),
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            Button(onClick = onPlayClicked) {
+            Button(
+                onClick = onPlayClicked,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = colors.primary,
+                    contentColor = colors.onPrimary,
+                ),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.PlayArrow,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+
+                Spacer(modifier = Modifier.width(6.dp))
+
                 Text("Play Album")
-            }
-        }
-    }
-}
-
-@Composable
-private fun PlaybackErrorBanner(
-    message: String,
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer,
-            contentColor = MaterialTheme.colorScheme.onErrorContainer,
-        ),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 12.dp, top = 4.dp, end = 4.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(onClick = onDismiss) {
-                Text("Dismiss")
             }
         }
     }
