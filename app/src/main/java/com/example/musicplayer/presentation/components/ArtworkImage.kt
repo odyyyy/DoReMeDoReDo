@@ -15,36 +15,36 @@ import coil3.compose.AsyncImage
 import java.net.URLDecoder
 
 /**
- * Artwork for one track or album: the cached image from the artwork pipeline,
- * falling back to the neutral [ArtworkTile] displaying the audio format when
+ * Artwork for one track or album: the cached image cover from the artwork pipeline,
+ * falling back to the neutral [ArtworkTile] displaying the title initial when
  * missing or unreadable.
- *
- * For tracks with artwork, only [AsyncImage] is composed to eliminate overdraw.
- * For tracks without artwork, only [ArtworkTile] is composed to bypass Coil coroutines.
  */
 @Composable
 fun ArtworkImage(
     artworkUri: String?,
     title: String,
-    trackUri: String? = null,
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 8.dp,
-    textStyle: TextStyle = MaterialTheme.typography.labelSmall,
+    textStyle: TextStyle = MaterialTheme.typography.titleMedium,
 ) {
-    val format = remember(trackUri, title) {
-        extractAudioFormat(trackUri ?: "", title)
-    }
+    val shape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
 
     if (artworkUri.isNullOrBlank()) {
         ArtworkTile(
-            format = format,
+            title = title,
             modifier = modifier,
             cornerRadius = cornerRadius,
             textStyle = textStyle,
         )
     } else {
-        val shape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
         Box(modifier = modifier) {
+            ArtworkTile(
+                title = title,
+                modifier = Modifier.matchParentSize(),
+                cornerRadius = cornerRadius,
+                textStyle = textStyle,
+            )
+
             AsyncImage(
                 model = artworkUri,
                 contentDescription = null,

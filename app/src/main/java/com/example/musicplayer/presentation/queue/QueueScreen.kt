@@ -49,7 +49,9 @@ import com.example.musicplayer.player.PlaybackQueue
 import com.example.musicplayer.player.PlaybackTrack
 import com.example.musicplayer.presentation.components.ArtworkImage
 import com.example.musicplayer.presentation.components.MessageStatus
+import com.example.musicplayer.presentation.components.extractAudioFormat
 import com.example.musicplayer.presentation.components.formatDuration
+import androidx.compose.material3.Surface
 
 /** Fixed row and spacing geometry so drag reordering can convert pixels to rows. */
 private val QueueRowHeight = 68.dp
@@ -272,10 +274,13 @@ private fun QueueRow(
 
         Spacer(modifier = Modifier.width(6.dp))
 
+        val format = remember(item.uri, item.title) {
+            extractAudioFormat(item.uri, item.title)
+        }
+
         ArtworkImage(
             artworkUri = item.artworkUri,
             title = item.title,
-            trackUri = item.uri,
             modifier = Modifier.size(40.dp),
             cornerRadius = 6.dp,
         )
@@ -283,14 +288,35 @@ private fun QueueRow(
         Spacer(modifier = Modifier.width(10.dp))
 
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = item.title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
-                color = if (isCurrent) colors.primary else colors.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = item.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
+                    color = if (isCurrent) colors.primary else colors.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                Surface(
+                    color = colors.primary.copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(4.dp),
+                ) {
+                    Text(
+                        text = format,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.primary,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                    )
+                }
+            }
 
             if (!item.artist.isNullOrBlank()) {
                 Text(

@@ -48,6 +48,14 @@ interface TrackRepository {
     suspend fun getArtworkUris(): List<String>
 
     /**
+     * True when at least one indexed track has never had its artwork read.
+     *
+     * Used once per upgrade to backfill covers for a library that was indexed
+     * before artwork extraction existed, without rescanning on every launch.
+     */
+    suspend fun hasTracksWithoutArtworkScan(): Boolean
+
+    /**
      * Inserts new tracks and updates rows that already exist for the same URI.
      */
     suspend fun upsertAll(tracks: List<TrackEntity>)

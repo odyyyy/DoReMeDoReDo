@@ -145,6 +145,8 @@ internal class FakeTrackRepository(
     override suspend fun getAll(): List<TrackEntity> = entities
     override suspend fun count(): Int = entities.size
     override suspend fun getArtworkUris(): List<String> = entities.mapNotNull { it.artworkUri }
+    override suspend fun hasTracksWithoutArtworkScan(): Boolean =
+        entities.any { !it.artworkScanned }
     override suspend fun upsertAll(tracks: List<TrackEntity>) {}
     override suspend fun deleteByUris(uris: List<String>) {}
     override suspend fun deleteByFolder(folderUri: String) {}

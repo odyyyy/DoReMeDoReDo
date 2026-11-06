@@ -8,6 +8,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -24,6 +25,41 @@ class MusicScanner @Inject constructor(
         val SUPPORTED_EXTENSIONS = setOf(
             "mp3", "flac", "wav", "m4a", "aac", "ogg", "opus"
         )
+
+        /** Image extensions accepted as a folder cover. */
+        private val ARTWORK_EXTENSIONS = setOf("jpg", "jpeg", "png", "webp", "bmp")
+
+        /**
+         * Conventional cover file base names, most specific first. Used only when
+         * a folder holds more than one image.
+         */
+        private val PREFERRED_ARTWORK_NAMES = listOf(
+            "cover", "folder", "front", "album", "albumart", "artwork", "thumb",
+        )
+
+        /**
+         * Chooses the cover image of one folder from its file names.
+         *
+         * A single image in the folder is always treated as the cover. When
+         * several exist, only a conventionally named one is trusted, in
+         * [PREFERRED_ARTWORK_NAMES] order; ambiguous folders fall back to the
+         * embedded artwork only. Pure so the rule can be unit tested without a
+         * document provider.
+         */
+        internal fun chooseFolderArtworkName(fileNames: List<String>): String? {
+            val images = fileNames.filter { name ->
+                name.substringAfterLast('.', "").lowercase(Locale.ROOT) in ARTWORK_EXTENSIONS
+            }
+            if (images.isEmpty()) return null
+            if (images.size == 1) return images.first()
+
+            for (preferred in PREFERRED_ARTWORK_NAMES) {
+                images.firstOrNull { name ->
+                    name.substringBeforeLast('.').trim().lowercase(Locale.ROOT) == preferred
+                }?.let { return it }
+            }
+            return null
+        }
     }
 
     /**
@@ -78,6 +114,9 @@ class MusicScanner @Inject constructor(
                 return
             }
 
+            // One lookup per folder: all audio files in it share the same cover.
+            val folderArtworkUri = selectFolderArtwork(files)
+
             for (file in files) {
                 totalFilesScanned++
                 try {
@@ -92,6 +131,7 @@ class MusicScanner @Inject constructor(
                                 size = file.length(),
                                 lastModified = file.lastModified(),
                                 parentFolderUri = dir.uri,
+                                artworkFileUri = folderArtworkUri,
                             )
                         )
                     }
@@ -119,6 +159,36 @@ class MusicScanner @Inject constructor(
             durationMs = durationMs,
             warnings = warnings,
         )
+    }
+
+    /**
+     * Resolves the folder cover document, tolerating providers that fail on
+     * individual entries. Returns `null` when the folder has no usable image.
+     */
+    private fun selectFolderArtwork(files: Array<DocumentFile>): Uri? {
+        val images = files.mapNotNull { file ->
+            val name = try {
+                file.name
+            } catch (_: Exception) {
+                null
+            } ?: return@mapNotNull null
+            try {
+                if (file.isDirectory) return@mapNotNull null
+            } catch (_: Exception) {
+                return@mapNotNull null
+            }
+
+            val isImage = try {
+                file.type?.startsWith("image/", ignoreCase = true) == true ||
+                    name.substringAfterLast('.', "").lowercase(Locale.ROOT) in ARTWORK_EXTENSIONS
+            } catch (_: Exception) {
+                false
+            }
+            if (isImage) name to file.uri else null
+        }
+
+        val chosenName = chooseFolderArtworkName(images.map { it.first }) ?: return null
+        return images.firstOrNull { it.first == chosenName }?.second
     }
 
     /**

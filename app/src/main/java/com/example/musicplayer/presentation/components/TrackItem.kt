@@ -4,10 +4,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.GraphicEq
@@ -19,6 +21,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,8 +37,8 @@ import androidx.compose.ui.unit.dp
 import com.example.musicplayer.domain.model.Track
 
 /**
- * One row of a track list: artwork tile displaying artwork or song format, title, artist,
- * duration, and an overflow menu with queue actions.
+ * One row of a track list: artwork tile displaying artwork cover, title, format badge,
+ * artist, duration, and an overflow menu with queue actions.
  *
  * Tapping the row starts playback from that track. The loaded track is marked with the
  * accent colour plus a state icon, so it is identifiable without relying on colour alone.
@@ -51,6 +54,9 @@ fun TrackItem(
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
+    val format = remember(track.uri, track.title) {
+        extractAudioFormat(track.uri, track.title)
+    }
 
     Row(
         modifier = modifier
@@ -63,7 +69,6 @@ fun TrackItem(
         ArtworkImage(
             artworkUri = track.artworkUri,
             title = track.title,
-            trackUri = track.uri,
             modifier = Modifier.size(44.dp),
             cornerRadius = 6.dp,
         )
@@ -73,14 +78,37 @@ fun TrackItem(
                 .weight(1f)
                 .padding(start = 12.dp, end = 8.dp),
         ) {
-            Text(
-                text = track.title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
-                color = if (isCurrent) colors.primary else colors.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = track.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
+                    color = if (isCurrent) colors.primary else colors.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                Surface(
+                    color = colors.primary.copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(4.dp),
+                ) {
+                    Text(
+                        text = format,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.primary,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(2.dp))
 
             Text(
                 text = track.artist,

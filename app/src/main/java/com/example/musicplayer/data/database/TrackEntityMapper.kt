@@ -10,11 +10,15 @@ import com.example.musicplayer.domain.model.TrackMetadata
  * @param dateAdded Timestamp to record as the track's first-seen time. Callers
  *   preserve the existing value for tracks that are already indexed.
  * @param artworkUri Optional reference to artwork stored outside the database.
+ * @param artworkScanned Whether artwork extraction has been attempted for this
+ *   file. A freshly read file has always been tried, even when it produced no
+ *   artwork.
  */
 fun DiscoveredAudioFile.toTrackEntity(
     metadata: TrackMetadata,
     dateAdded: Long,
     artworkUri: String? = null,
+    artworkScanned: Boolean = true,
 ): TrackEntity = TrackEntity(
     uri = uri.toString(),
     title = metadata.title,
@@ -23,6 +27,7 @@ fun DiscoveredAudioFile.toTrackEntity(
     durationMs = metadata.durationMs,
     albumId = metadata.albumId,
     artworkUri = artworkUri,
+    artworkScanned = artworkScanned,
     folderUri = parentFolderUri.toString(),
     fileSize = size,
     lastModified = lastModified,

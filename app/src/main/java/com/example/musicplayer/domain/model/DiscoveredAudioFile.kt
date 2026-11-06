@@ -11,6 +11,8 @@ import android.net.Uri
  * @property size File size in bytes.
  * @property lastModified Last modified timestamp in milliseconds since epoch.
  * @property parentFolderUri Document URI of the parent folder.
+ * @property artworkFileUri Optional image file in the same folder (cover.jpg,
+ *   folder.jpg, …) used when the audio file has no embedded artwork.
  */
 data class DiscoveredAudioFile(
     val uri: Uri,
@@ -19,4 +21,5 @@ data class DiscoveredAudioFile(
     val size: Long,
     val lastModified: Long,
     val parentFolderUri: Uri,
+    val artworkFileUri: Uri? = null,
 )

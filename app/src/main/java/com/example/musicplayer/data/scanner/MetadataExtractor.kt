@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
+import android.net.Uri
 import com.example.musicplayer.domain.model.DiscoveredAudioFile
 import com.example.musicplayer.domain.model.TrackMetadata
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -102,23 +103,65 @@ class MetadataExtractor @Inject constructor(
             rawArtist = rawArtist,
             rawAlbum = rawAlbum,
             rawDuration = rawDuration,
-            artworkBytes = readArtwork(retriever),
+            artworkBytes = readArtwork(retriever = retriever, file = file),
         )
     }
 
     /**
-     * Reads and bounds embedded artwork. Missing, unreadable, or corrupt
-     * artwork is a normal state and resolves to `null`.
+     * Reads and bounds artwork: the embedded picture first, then a cover image
+     * found next to the audio file (`cover.jpg`, `folder.jpg`, …). Missing,
+     * unreadable, or corrupt artwork is a normal state and resolves to `null`.
      */
-    private fun readArtwork(retriever: MediaMetadataRetriever): ByteArray? {
-        val rawArtwork = try {
+    private fun readArtwork(
+        retriever: MediaMetadataRetriever,
+        file: DiscoveredAudioFile,
+    ): ByteArray? {
+        val embedded = try {
             retriever.embeddedPicture
         } catch (_: Exception) {
             null
-        } ?: return null
+        }
 
+        if (embedded != null) {
+            return try {
+                downscaleArtwork(embedded)
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+        return readArtworkFile(file.artworkFileUri)
+    }
+
+    /**
+     * Reads a folder cover image through the document provider, decoding it at
+     * the bounded artwork size instead of loading the full-resolution bitmap.
+     */
+    private fun readArtworkFile(uri: Uri?): ByteArray? {
+        if (uri == null) return null
         return try {
-            downscaleArtwork(rawArtwork)
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                BitmapFactory.decodeStream(stream, null, bounds)
+            } ?: return null
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+            val options = BitmapFactory.Options().apply {
+                inSampleSize = calculateInSampleSize(
+                    width = bounds.outWidth,
+                    height = bounds.outHeight,
+                    maxDimension = MAX_ARTWORK_DIMENSION_PX,
+                )
+            }
+            val bitmap = context.contentResolver.openInputStream(uri)?.use { stream ->
+                BitmapFactory.decodeStream(stream, null, options)
+            } ?: return null
+
+            try {
+                encodeArtwork(bitmap)
+            } finally {
+                bitmap.recycle()
+            }
         } catch (_: Exception) {
             null
         }
@@ -247,13 +290,22 @@ class MetadataExtractor @Inject constructor(
                 ?: return null
 
             return try {
-                ByteArrayOutputStream().use { output ->
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, ARTWORK_JPEG_QUALITY, output)
-                    output.toByteArray().takeIf { it.isNotEmpty() && it.size <= maxBytes }
-                }
+                encodeArtwork(bitmap = bitmap, maxBytes = maxBytes)
             } finally {
                 bitmap.recycle()
             }
+        }
+
+        /**
+         * Compresses a bitmap to a bounded JPEG. Pure with respect to the image
+         * source, so embedded artwork and folder cover files share one encoder.
+         */
+        internal fun encodeArtwork(
+            bitmap: Bitmap,
+            maxBytes: Int = MAX_ARTWORK_BYTES,
+        ): ByteArray? = ByteArrayOutputStream().use { output ->
+            bitmap.compress(Bitmap.CompressFormat.JPEG, ARTWORK_JPEG_QUALITY, output)
+            output.toByteArray().takeIf { it.isNotEmpty() && it.size <= maxBytes }
         }
     }
 }

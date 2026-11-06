@@ -1,5 +1,6 @@
 package com.example.musicplayer.data.database
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -18,6 +19,10 @@ import androidx.room.PrimaryKey
  * @property albumId Optional album-grouping key derived from tags.
  * @property artworkUri Optional reference to local artwork, or `null` when the
  *   track has no artwork.
+ * @property artworkScanned True once the scanner has tried to read this track's
+ *   artwork. Rows indexed before artwork extraction existed start as `false`,
+ *   so the next scan backfills them; a track that genuinely has no artwork is
+ *   marked `true` and is not re-read on every rescan.
  * @property folderUri URI of the parent folder that was scanned.
  * @property fileSize File size in bytes, or `0` when the provider did not
  *   report it.
@@ -46,6 +51,8 @@ data class TrackEntity(
     val durationMs: Long,
     val albumId: String?,
     val artworkUri: String?,
+    @ColumnInfo(defaultValue = "0")
+    val artworkScanned: Boolean = false,
     val folderUri: String,
     val fileSize: Long,
     val lastModified: Long,

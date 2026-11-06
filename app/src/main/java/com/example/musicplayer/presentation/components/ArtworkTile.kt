@@ -19,14 +19,14 @@ import androidx.compose.ui.unit.dp
 
 /**
  * Neutral artwork tile: a dark gradient square with a hairline gold edge displaying
- * the audio format (e.g. "MP3", "FLAC", "OGG").
+ * the title initial when no artwork image is present.
  */
 @Composable
 fun ArtworkTile(
-    format: String,
+    title: String,
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 8.dp,
-    textStyle: TextStyle = MaterialTheme.typography.labelSmall,
+    textStyle: TextStyle = MaterialTheme.typography.titleMedium,
 ) {
     val colors = MaterialTheme.colorScheme
     val shape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
@@ -37,6 +37,9 @@ fun ArtworkTile(
     }
     val borderColor = remember(colors.primary) { colors.primary.copy(alpha = 0.22f) }
     val textColor = remember(colors.primary) { colors.primary.copy(alpha = 0.85f) }
+    val initial = remember(title) {
+        title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?"
+    }
 
     Box(
         modifier = modifier
@@ -46,9 +49,9 @@ fun ArtworkTile(
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            text = format,
+            text = initial,
             style = textStyle,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.SemiBold,
             color = textColor,
             maxLines = 1,
         )

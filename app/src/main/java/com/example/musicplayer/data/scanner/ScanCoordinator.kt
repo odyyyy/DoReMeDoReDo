@@ -31,7 +31,9 @@ import javax.inject.Singleton
  *    files; deletion always runs last, so a failure during persistence cannot
  *    wipe indexed tracks.
  *  - Unchanged files (same URI, size, and modified time) are not re-read, so
- *    rescanning a large library is cheap.
+ *    rescanning a large library is cheap. A row that was indexed before its
+ *    artwork was ever read (`artworkScanned == false`) is the exception: it is
+ *    re-read once so covers appear without the user clearing the library.
  *  - Extracted artwork is stored as a content-addressed file before the row is
  *    written, and stored images that the reconciled library no longer references
  *    are deleted afterwards, so the artwork store tracks the library exactly.
@@ -166,10 +168,14 @@ class ScanCoordinator @Inject constructor(
         var unchanged = 0
 
         // Files whose stamp changed (or that were never indexed) are the only
-        // ones worth the cost of another metadata read.
+        // ones worth the cost of another metadata read, plus rows indexed before
+        // artwork extraction ran: those still have artworkScanned == false and
+        // get their cover backfilled by this scan.
         val needsExtraction = discovered.filter { file ->
             val existing = existingByUri[file.uri.toString()]
-            existing == null || !existing.isSameFile(size = file.size, modifiedAt = file.lastModified)
+            existing == null ||
+                !existing.artworkScanned ||
+                !existing.isSameFile(size = file.size, modifiedAt = file.lastModified)
         }
 
         val results = if (needsExtraction.isEmpty()) {
@@ -249,6 +255,7 @@ class ScanCoordinator @Inject constructor(
         durationMs = 0L,
         albumId = null,
         artworkUri = null,
+        artworkScanned = true,
         folderUri = file.parentFolderUri.toString(),
         fileSize = file.size,
         lastModified = file.lastModified,

@@ -319,6 +319,41 @@ class ScanCoordinatorTest {
     }
 
     @Test
+    fun unchangedTrackIndexedBeforeArtworkPipeline_isReReadAndBackfilled() = runBlocking {
+        // A row written before artwork extraction existed: same file stamp as the
+        // discovered file, but its artwork was never read.
+        dao.upsert(
+            TrackEntity(
+                uri = "$ROOT/a.mp3",
+                title = "a",
+                artist = "Artist",
+                album = "Album",
+                durationMs = 210_000L,
+                albumId = "album-key",
+                artworkUri = null,
+                artworkScanned = false,
+                folderUri = PARENT,
+                fileSize = 1_024L,
+                lastModified = 1_700_000_000_000L,
+                dateAdded = 1L,
+            ),
+        )
+        val artwork = byteArrayOf(4, 2)
+        metadata.artwork = mapOf("a.mp3" to artwork)
+        val store = FakeArtworkStore()
+        val coordinator = coordinator(FakeDiscovery(success(file("a.mp3"))), artworkStore = store)
+
+        coordinator.scanFolder(FOLDER)
+
+        val row = dao.getAll().single()
+        assertNotNull(row.artworkUri)
+        assertTrue("the backfill must be recorded so it is not repeated", row.artworkScanned)
+        assertEquals(1L, row.dateAdded)
+        assertEquals(1, metadata.reads)
+        assertEquals(listOf(artwork.toList()), store.stored.values.map { it.toList() })
+    }
+
+    @Test
     fun sharedArtworkAcrossTracks_isStoredOnce() = runBlocking {
         val cover = byteArrayOf(7, 7, 7)
         val store = FakeArtworkStore()
