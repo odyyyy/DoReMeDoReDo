@@ -37,7 +37,9 @@ fun groupTracksIntoAlbums(tracks: List<Track>): List<Album> {
         .groupBy { it.getAlbumGroupingKey() }
         .map { (key, albumTracks) ->
             val firstTrack = albumTracks.first()
-            val artworkUri = albumTracks.firstNotNullOfOrNull { it.artworkUri }
+            val artworkUri = albumTracks
+                .mapNotNull { it.artworkUri }
+                .firstOrNull()
             Album(
                 id = key,
                 title = firstTrack.album,

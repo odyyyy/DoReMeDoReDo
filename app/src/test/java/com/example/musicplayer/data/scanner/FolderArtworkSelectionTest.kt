@@ -5,9 +5,9 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * The folder-cover rule: one image is always the cover, several are only
- * trusted when one has a conventional name. Pure, so no document provider is
- * needed.
+ * The folder-cover rule: one image is always the cover, several prefer a
+ * conventional name (cover/folder/front/…) and otherwise fall back to the
+ * first image alphabetically. Pure, so no document provider is needed.
  */
 class FolderArtworkSelectionTest {
 
@@ -48,12 +48,12 @@ class FolderArtworkSelectionTest {
     }
 
     @Test
-    fun severalUnconventionalImages_areIgnored() {
+    fun severalUnconventionalImages_useFirstAlphabetically() {
         val name = MusicScanner.chooseFolderArtworkName(
             listOf("art-1.jpg", "art-2.png", "track.flac"),
         )
 
-        assertNull(name)
+        assertEquals("art-1.jpg", name)
     }
 
     @Test

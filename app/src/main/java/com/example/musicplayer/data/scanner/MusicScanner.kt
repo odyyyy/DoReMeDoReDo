@@ -30,8 +30,11 @@ class MusicScanner @Inject constructor(
         private val ARTWORK_EXTENSIONS = setOf("jpg", "jpeg", "png", "webp", "bmp")
 
         /**
-         * Conventional cover file base names, most specific first. Used only when
-         * a folder holds more than one image.
+         * Conventional cover file base names, preferred order. Used only when
+         * a folder holds more than one image and none of the conventional names
+         * match; the first image alphabetically is used as a last resort so any
+         * image file (e.g. Cover.jpg, folder.png, my-cover.webp) can serve as
+         * the folder cover instead of being silently ignored.
          */
         private val PREFERRED_ARTWORK_NAMES = listOf(
             "cover", "folder", "front", "album", "albumart", "artwork", "thumb",
@@ -41,9 +44,9 @@ class MusicScanner @Inject constructor(
          * Chooses the cover image of one folder from its file names.
          *
          * A single image in the folder is always treated as the cover. When
-         * several exist, only a conventionally named one is trusted, in
-         * [PREFERRED_ARTWORK_NAMES] order; ambiguous folders fall back to the
-         * embedded artwork only. Pure so the rule can be unit tested without a
+         * several exist, a conventionally named one is preferred in
+         * [PREFERRED_ARTWORK_NAMES] order; otherwise the first image
+         * alphabetically is used. Pure so the rule can be unit tested without a
          * document provider.
          */
         internal fun chooseFolderArtworkName(fileNames: List<String>): String? {
@@ -58,7 +61,8 @@ class MusicScanner @Inject constructor(
                     name.substringBeforeLast('.').trim().lowercase(Locale.ROOT) == preferred
                 }?.let { return it }
             }
-            return null
+
+            return images.sorted().first()
         }
     }
 
