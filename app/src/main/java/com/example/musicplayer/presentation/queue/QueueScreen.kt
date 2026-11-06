@@ -47,7 +47,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.musicplayer.player.PlaybackQueue
 import com.example.musicplayer.player.PlaybackTrack
-import com.example.musicplayer.presentation.components.ArtworkTile
+import com.example.musicplayer.presentation.components.ArtworkImage
 import com.example.musicplayer.presentation.components.MessageStatus
 import com.example.musicplayer.presentation.components.formatDuration
 
@@ -192,12 +192,14 @@ private fun QueueList(
     ) {
         itemsIndexed(items) { index, item ->
             val isDragging = index == draggingIndex
+            val handleSelect = remember(index, onSelect) { { onSelect(index) } }
+            val handleRemove = remember(index, onRemove) { { onRemove(index) } }
             QueueRow(
                 item = item,
                 isCurrent = index == queue.currentIndex,
                 isDragging = isDragging,
-                onSelect = { onSelect(index) },
-                onRemove = { onRemove(index) },
+                onSelect = handleSelect,
+                onRemove = handleRemove,
                 modifier = Modifier
                     .zIndex(if (isDragging) 1f else 0f)
                     .graphicsLayer {
@@ -270,8 +272,10 @@ private fun QueueRow(
 
         Spacer(modifier = Modifier.width(6.dp))
 
-        ArtworkTile(
+        ArtworkImage(
+            artworkUri = item.artworkUri,
             title = item.title,
+            trackUri = item.uri,
             modifier = Modifier.size(40.dp),
             cornerRadius = 6.dp,
         )

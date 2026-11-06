@@ -119,6 +119,20 @@ class GetAlbumsUseCaseTest {
         assertEquals(2, result.size)
         assertEquals(setOf("Album A", "Album B"), result.map { it.title }.toSet())
     }
+    @Test
+    fun `GetAlbumsUseCase can group an already-subscribed track stream`() = runTest {
+        val getAlbumsUseCase = GetAlbumsUseCase(GetTracksUseCase(FakeTrackRepository(emptyList())))
+        val tracks = listOf(
+            track("uri://1", "Track 1", album = "Album A"),
+            track("uri://2", "Track 2", album = "Album A"),
+            track("uri://3", "Track 3", album = "Album B"),
+        )
+
+        val result = getAlbumsUseCase(flowOf(tracks)).first()
+
+        assertEquals(2, result.size)
+        assertEquals(2, result.first { it.title == "Album A" }.trackCount)
+    }
 }
 
 internal class FakeTrackRepository(
@@ -130,6 +144,7 @@ internal class FakeTrackRepository(
     override suspend fun getUrisByFolder(folderUri: String): List<String> = entities.map { it.uri }
     override suspend fun getAll(): List<TrackEntity> = entities
     override suspend fun count(): Int = entities.size
+    override suspend fun getArtworkUris(): List<String> = entities.mapNotNull { it.artworkUri }
     override suspend fun upsertAll(tracks: List<TrackEntity>) {}
     override suspend fun deleteByUris(uris: List<String>) {}
     override suspend fun deleteByFolder(folderUri: String) {}

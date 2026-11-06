@@ -11,6 +11,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -170,27 +171,30 @@ private fun TrackList(
     onAddToQueue: (Track) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier.fillMaxWidth()) {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            items(
-                items = tracksState.tracks,
-                key = { it.uri },
-            ) { track ->
-                val isCurrent = playbackHighlight?.trackUri == track.uri
-                TrackItem(
-                    track = track,
-                    isCurrent = isCurrent,
-                    isPlaying = isCurrent && playbackHighlight?.isPlaying == true,
-                    onClick = { onTrackSelected(track) },
-                    onPlayNext = { onPlayNext(track) },
-                    onAddToQueue = { onAddToQueue(track) },
-                )
-            }
+    LazyColumn(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        items(
+            items = tracksState.tracks,
+            key = { it.uri },
+            // One row layout for the whole list: lets the lazy list reuse the
+            // same composed nodes while scrolling a large library.
+            contentType = { "track" },
+        ) { track ->
+            val isCurrent = playbackHighlight?.trackUri == track.uri
+            val isPlaying = isCurrent && playbackHighlight?.isPlaying == true
+            val onClick = remember(track, onTrackSelected) { { onTrackSelected(track) } }
+            val onPlayNextAction = remember(track, onPlayNext) { { onPlayNext(track) } }
+            val onAddToQueueAction = remember(track, onAddToQueue) { { onAddToQueue(track) } }
+            TrackItem(
+                track = track,
+                isCurrent = isCurrent,
+                isPlaying = isPlaying,
+                onClick = onClick,
+                onPlayNext = onPlayNextAction,
+                onAddToQueue = onAddToQueueAction,
+            )
         }
     }
 }

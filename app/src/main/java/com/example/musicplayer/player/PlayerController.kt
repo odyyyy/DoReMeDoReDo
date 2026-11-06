@@ -251,13 +251,19 @@ class PlayerController @Inject constructor(
         it.seekTo(positionMs.coerceAtLeast(0L))
     }
 
-    fun seekToNext() = withController { it.seekToNext() }
+    fun seekToNext() = withController { mediaController ->
+        mediaController.seekToNext()
+        reloadIfFailed(mediaController)
+    }
 
     /**
      * Media3 applies the required previous-button rule: restart the current
      * item after ~3 seconds, otherwise move to the previous playlist item.
      */
-    fun seekToPrevious() = withController { it.seekToPrevious() }
+    fun seekToPrevious() = withController { mediaController ->
+        mediaController.seekToPrevious()
+        reloadIfFailed(mediaController)
+    }
 
     /**
      * Enables or disables Media3 shuffle mode.
@@ -292,6 +298,21 @@ class PlayerController @Inject constructor(
         lastError = null
         controller?.let { publish(it, refreshQueue = false) }
             ?: run { _state.value = _state.value.copy(playbackError = null) }
+    }
+
+    /**
+     * Loads the item a seek just moved to when the player is sitting idle.
+     *
+     * A track that cannot be read (its file was removed, or access to the folder
+     * was revoked) leaves ExoPlayer in [Player.STATE_IDLE] with an error, and a
+     * seek alone does not make it prepare again. Without this the Next and
+     * Previous buttons would move the queue and the artwork while staying silent
+     * on a perfectly playable track.
+     */
+    private fun reloadIfFailed(mediaController: MediaController) {
+        if (mediaController.playbackState == Player.STATE_IDLE) {
+            mediaController.prepare()
+        }
     }
 
     private fun withController(command: (MediaController) -> Unit) {
@@ -359,6 +380,12 @@ class PlayerController @Inject constructor(
     private fun publish(player: Player, refreshQueue: Boolean) {
         val durationMs = player.duration.validOrZero()
         val item = player.currentMediaItem
+
+        // A track that failed can be left behind by pressing play or Next; once
+        // audio is running again the stale message must not stay on screen.
+        if (lastError != null && player.isPlaying) {
+            lastError = null
+        }
 
         if (refreshQueue) {
             cachedQueue = buildQueue(player)

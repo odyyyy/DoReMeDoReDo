@@ -7,6 +7,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -17,40 +18,39 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * Neutral artwork tile: a dark gradient square with a hairline gold edge and the
- * initial of [title].
- *
- * Artwork extraction and caching arrive with the artwork pipeline; until an
- * `artworkUri` is actually populated, every player surface shows this tile so
- * missing artwork never leaves a hole in the layout and never competes with the
- * single accent colour.
+ * Neutral artwork tile: a dark gradient square with a hairline gold edge displaying
+ * the audio format (e.g. "MP3", "FLAC", "OGG").
  */
 @Composable
 fun ArtworkTile(
-    title: String,
+    format: String,
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 8.dp,
-    textStyle: TextStyle = MaterialTheme.typography.titleMedium,
+    textStyle: TextStyle = MaterialTheme.typography.labelSmall,
 ) {
-    val shape = RoundedCornerShape(cornerRadius)
     val colors = MaterialTheme.colorScheme
+    val shape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
+    val brush = remember(colors.surfaceContainerHigh, colors.surfaceContainerLow) {
+        Brush.verticalGradient(
+            listOf(colors.surfaceContainerHigh, colors.surfaceContainerLow),
+        )
+    }
+    val borderColor = remember(colors.primary) { colors.primary.copy(alpha = 0.22f) }
+    val textColor = remember(colors.primary) { colors.primary.copy(alpha = 0.85f) }
 
     Box(
         modifier = modifier
             .clip(shape)
-            .background(
-                Brush.verticalGradient(
-                    listOf(colors.surfaceContainerHigh, colors.surfaceContainerLow),
-                ),
-            )
-            .border(width = 1.dp, color = colors.primary.copy(alpha = 0.22f), shape = shape),
+            .background(brush)
+            .border(width = 1.dp, color = borderColor, shape = shape),
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            text = title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?",
+            text = format,
             style = textStyle,
-            fontWeight = FontWeight.SemiBold,
-            color = colors.primary.copy(alpha = 0.85f),
+            fontWeight = FontWeight.Bold,
+            color = textColor,
+            maxLines = 1,
         )
     }
 }

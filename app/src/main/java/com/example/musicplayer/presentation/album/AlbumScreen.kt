@@ -26,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -33,7 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.musicplayer.domain.model.Album
-import com.example.musicplayer.presentation.components.ArtworkTile
+import com.example.musicplayer.presentation.components.ArtworkImage
 import com.example.musicplayer.presentation.components.MessageStatus
 import com.example.musicplayer.presentation.components.PlaybackErrorBanner
 import com.example.musicplayer.presentation.components.TrackItem
@@ -124,13 +125,17 @@ fun AlbumScreen(
                         key = { it.uri },
                     ) { track ->
                         val isCurrent = playbackHighlight?.trackUri == track.uri
+                        val isPlaying = isCurrent && playbackHighlight?.isPlaying == true
+                        val onClick = remember(track) { { viewModel.onTrackSelected(track) } }
+                        val onPlayNextAction = remember(track) { { viewModel.onPlayNext(track) } }
+                        val onAddToQueueAction = remember(track) { { viewModel.onAddToQueue(track) } }
                         TrackItem(
                             track = track,
                             isCurrent = isCurrent,
-                            isPlaying = isCurrent && playbackHighlight?.isPlaying == true,
-                            onClick = { viewModel.onTrackSelected(track) },
-                            onPlayNext = { viewModel.onPlayNext(track) },
-                            onAddToQueue = { viewModel.onAddToQueue(track) },
+                            isPlaying = isPlaying,
+                            onClick = onClick,
+                            onPlayNext = onPlayNextAction,
+                            onAddToQueue = onAddToQueueAction,
                         )
                     }
                 }
@@ -179,7 +184,8 @@ private fun AlbumHeader(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ArtworkTile(
+        ArtworkImage(
+            artworkUri = album.artworkUri,
             title = album.title,
             modifier = Modifier.size(104.dp),
             cornerRadius = 12.dp,

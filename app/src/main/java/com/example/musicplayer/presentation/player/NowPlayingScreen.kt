@@ -56,7 +56,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.musicplayer.player.PlaybackRepeatMode
-import com.example.musicplayer.presentation.components.ArtworkTile
+import com.example.musicplayer.presentation.components.ArtworkImage
 import com.example.musicplayer.presentation.components.formatDuration
 import kotlin.math.abs
 
@@ -151,7 +151,8 @@ fun NowPlayingContent(
                 .weight(1f),
             contentAlignment = Alignment.Center,
         ) {
-            ArtworkTile(
+            ArtworkImage(
+                artworkUri = state.artworkUri,
                 title = state.title,
                 modifier = Modifier
                     .fillMaxHeight()

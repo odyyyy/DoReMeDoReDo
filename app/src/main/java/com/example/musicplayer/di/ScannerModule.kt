@@ -1,5 +1,7 @@
 package com.example.musicplayer.di
 
+import com.example.musicplayer.data.artwork.ArtworkStore
+import com.example.musicplayer.data.artwork.FileArtworkStore
 import com.example.musicplayer.data.scanner.AudioFileDiscovery
 import com.example.musicplayer.data.scanner.MetadataExtraction
 import com.example.musicplayer.data.scanner.MetadataExtractor
@@ -24,6 +26,10 @@ abstract class ScannerModule {
     @Binds
     @Singleton
     abstract fun bindMetadataExtraction(impl: MetadataExtractor): MetadataExtraction
+
+    @Binds
+    @Singleton
+    abstract fun bindArtworkStore(impl: FileArtworkStore): ArtworkStore
 
     companion object {
 

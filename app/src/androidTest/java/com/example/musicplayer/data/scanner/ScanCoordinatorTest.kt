@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.musicplayer.data.database.AppDatabase
+import com.example.musicplayer.data.artwork.ArtworkStore
 import com.example.musicplayer.data.database.TrackDao
 import com.example.musicplayer.data.database.TrackEntity
 import com.example.musicplayer.data.repository.TrackRepository
@@ -22,6 +23,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -287,6 +290,114 @@ class ScanCoordinatorTest {
         assertEquals(1, dao.count())
     }
 
+    // --- artwork pipeline ----------------------------------------------------
+
+    @Test
+    fun newTrackWithArtwork_isStoredAndIndexed() = runBlocking {
+        val artwork = byteArrayOf(1, 2, 3)
+        val store = FakeArtworkStore()
+        metadata.artwork = mapOf("a.mp3" to artwork)
+        val coordinator = coordinator(FakeDiscovery(success(file("a.mp3"))), artworkStore = store)
+
+        coordinator.scanFolder(FOLDER)
+
+        val uri = dao.getAll().single().artworkUri
+        assertNotNull(uri)
+        assertEquals(listOf(artwork.toList()), store.stored.values.map { it.toList() })
+        assertTrue(store.stored.containsKey(uri))
+    }
+
+    @Test
+    fun trackWithoutArtwork_indexesNoArtworkReference() = runBlocking {
+        val store = FakeArtworkStore()
+        val coordinator = coordinator(FakeDiscovery(success(file("a.mp3"))), artworkStore = store)
+
+        coordinator.scanFolder(FOLDER)
+
+        assertNull(dao.getAll().single().artworkUri)
+        assertTrue(store.stored.isEmpty())
+    }
+
+    @Test
+    fun sharedArtworkAcrossTracks_isStoredOnce() = runBlocking {
+        val cover = byteArrayOf(7, 7, 7)
+        val store = FakeArtworkStore()
+        metadata.artwork = mapOf("a.mp3" to cover, "b.mp3" to cover)
+        val coordinator = coordinator(
+            FakeDiscovery(success(file("a.mp3"), file("b.mp3"))),
+            artworkStore = store,
+        )
+
+        coordinator.scanFolder(FOLDER)
+
+        assertEquals(1, store.stored.size)
+        assertEquals(1, dao.getAll().mapNotNull { it.artworkUri }.toSet().size)
+        // The shared image is still referenced by the library after cleaning.
+        assertEquals(1, store.stored.size)
+    }
+
+    @Test
+    fun changedFile_replacesArtworkAndRemovesTheStaleImage() = runBlocking {
+        metadata.artwork = mapOf("a.mp3" to byteArrayOf(1))
+        val store = FakeArtworkStore()
+        val discovery = FakeDiscovery(success(file("a.mp3")))
+        val coordinator = coordinator(discovery, artworkStore = store)
+        coordinator.scanFolder(FOLDER)
+        val oldArtworkUri = dao.getAll().single().artworkUri
+        assertNotNull(oldArtworkUri)
+        Thread.sleep(5)
+
+        metadata.artwork = mapOf("a.mp3" to byteArrayOf(9))
+        discovery.result = success(file("a.mp3", size = 4_096L))
+
+        coordinator.scanFolder(FOLDER)
+
+        val newArtworkUri = dao.getAll().single().artworkUri
+        assertNotNull(newArtworkUri)
+        assertNotEquals(oldArtworkUri, newArtworkUri)
+        assertFalse("stale artwork must be deleted", store.stored.containsKey(oldArtworkUri))
+    }
+
+    @Test
+    fun removedTrack_dropsItsArtwork() = runBlocking {
+        metadata.artwork = mapOf("gone.mp3" to byteArrayOf(5))
+        val store = FakeArtworkStore()
+        val discovery = FakeDiscovery(success(file("gone.mp3")))
+        val coordinator = coordinator(discovery, artworkStore = store)
+        coordinator.scanFolder(FOLDER)
+        assertEquals(1, store.stored.size)
+
+        // The folder is now empty, so the indexed track and its artwork go away.
+        discovery.result = success()
+
+        coordinator.scanFolder(FOLDER)
+
+        assertEquals(0, dao.count())
+        assertTrue(store.stored.isEmpty())
+    }
+
+    @Test
+    fun failedScan_neverCleansUpArtwork() = runBlocking {
+        metadata.artwork = mapOf("a.mp3" to byteArrayOf(1))
+        val store = FakeArtworkStore()
+        val discovery = FakeDiscovery(success(file("a.mp3")))
+        val coordinator = coordinator(discovery, artworkStore = store)
+        coordinator.scanFolder(FOLDER)
+        val written = store.stored.keys.toList()
+        val cleanupsAfterSuccessfulScan = store.cleanups
+
+        discovery.result = ScanResult.Failure(
+            folderUri = FOLDER,
+            error = SecurityException("revoked"),
+            message = "Read permission for the selected folder is no longer available.",
+        )
+
+        coordinator.scanFolder(FOLDER)
+
+        assertEquals(written, store.stored.keys.toList())
+        assertEquals(cleanupsAfterSuccessfulScan, store.cleanups)
+    }
+
     // --- helpers -------------------------------------------------------------
 
     private fun coordinator(
@@ -294,11 +405,13 @@ class ScanCoordinatorTest {
         metadataExtraction: MetadataExtraction = metadata,
         repository: TrackRepository = this.repository,
         scanStatus: ScanStatusRepository = FakeScanStatusRepository(),
+        artworkStore: ArtworkStore = FakeArtworkStore(),
     ) = ScanCoordinator(
         discovery = discovery,
         metadataExtraction = metadataExtraction,
         trackRepository = repository,
         scanStatusRepository = scanStatus,
+        artworkStore = artworkStore,
         ioDispatcher = Dispatchers.IO,
     )
 
@@ -340,6 +453,9 @@ class ScanCoordinatorTest {
         /** Files whose metadata read fails. */
         var failingUris: Set<String> = emptySet()
 
+        /** Embedded artwork to return per file name. */
+        var artwork: Map<String, ByteArray> = emptyMap()
+
         /** Number of files pushed through metadata extraction. */
         var reads = 0
 
@@ -361,10 +477,33 @@ class ScanCoordinatorTest {
                             album = "Album",
                             durationMs = 210_000L,
                             albumId = "album-key",
+                            artworkBytes = artwork[file.name],
                         ),
                     )
                 }
             }
+        }
+    }
+
+    /** In-memory stand-in for the content-addressed artwork store. */
+    private class FakeArtworkStore : ArtworkStore {
+        /** Stored artwork by URI, mimicking content addressing via the bytes. */
+        val stored = LinkedHashMap<String, ByteArray>()
+
+        /** Number of cleanup passes requested after a completed scan. */
+        var cleanups = 0
+
+        override suspend fun store(artworkBytes: ByteArray): String? {
+            if (artworkBytes.isEmpty()) return null
+            stored.entries.firstOrNull { it.value.contentEquals(artworkBytes) }?.let { return it.key }
+            val uri = "file:///artwork/${stored.size}.jpg"
+            stored[uri] = artworkBytes
+            return uri
+        }
+
+        override suspend fun deleteUnreferenced(referencedArtworkUris: Collection<String>) {
+            cleanups++
+            stored.keys.retainAll(referencedArtworkUris.toSet())
         }
     }
 

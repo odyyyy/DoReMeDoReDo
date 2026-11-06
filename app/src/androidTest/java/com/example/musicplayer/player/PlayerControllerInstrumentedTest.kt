@@ -6,8 +6,6 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.musicplayer.domain.model.Track
 import java.io.File
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
@@ -66,17 +64,12 @@ class PlayerControllerInstrumentedTest {
         }
         Log.d("PlayerDiag", "stage: connected")
 
-        val file = createWavFile("playback-${System.nanoTime()}.wav", durationMs = 5_000)
-        val track = Track(
-            uri = Uri.fromFile(file).toString(),
-            title = "Playback Test",
-            artist = "Test Artist",
-            album = "Test Album",
+        val file = TestTracks.wavFile(
+            context = context,
+            name = "playback-${System.nanoTime()}.wav",
             durationMs = 5_000,
-            albumId = null,
-            artworkUri = null,
-            dateAdded = 0L,
-        )
+        ).also { createdFiles += it }
+        val track = TestTracks.track(file, "Playback Test", durationMs = 5_000)
 
         Log.d("PlayerDiag", "stage: setQueue")
         controller.setQueue(listOf(track), startIndex = 0)
@@ -108,6 +101,53 @@ class PlayerControllerInstrumentedTest {
             controller.state.first { it.playbackError != null }
         }
         assertTrue(!failed.isPlaying)
+
+        // A file that disappears is recoverable: starting something playable
+        // again must clear the stale message once audio is running.
+        val replacement = TestTracks.wavFile(
+            context = context,
+            name = "playback-recovery-${System.nanoTime()}.wav",
+            durationMs = 5_000,
+        ).also { createdFiles += it }
+        controller.setQueue(
+            listOf(TestTracks.track(replacement, "Recovered", durationMs = 5_000)),
+            startIndex = 0,
+        )
+
+        val recovered = withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first { it.isPlaying }
+        }
+        assertEquals(null, recovered.playbackError)
+    }
+
+    /**
+     * A track that cannot be read leaves the player idle. Next must still start
+     * the following (playable) track instead of moving the queue silently.
+     */
+    @Test
+    fun nextAfterUnreadableTrack_recoversAndPlaysTheNextItem() = runBlocking {
+        withTimeout(CONNECT_TIMEOUT_MS) {
+            controller.state.first { it.isConnected }
+        }
+
+        val missing = TestTracks.track(
+            file = File(context.cacheDir, "gone-${System.nanoTime()}.wav"),
+            title = "Missing",
+        )
+        val playable = wavTrack("recover-playable", "Playable")
+
+        controller.setQueue(listOf(missing, playable), startIndex = 0)
+        withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first { it.playbackError != null }
+        }
+
+        controller.seekToNext()
+
+        val recovered = withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first { it.isPlaying }
+        }
+        assertEquals(playable.uri, recovered.currentTrack?.uri)
+        assertEquals(null, recovered.playbackError)
     }
 
     /**
@@ -122,17 +162,12 @@ class PlayerControllerInstrumentedTest {
         }
 
         val tracks = (1..3).map { index ->
-            val file = createWavFile("queue-$index-${System.nanoTime()}.wav", durationMs = 5_000)
-            Track(
-                uri = Uri.fromFile(file).toString(),
-                title = "Track $index",
-                artist = "Test Artist",
-                album = "Test Album",
+            val file = TestTracks.wavFile(
+                context = context,
+                name = "queue-$index-${System.nanoTime()}.wav",
                 durationMs = 5_000,
-                albumId = null,
-                artworkUri = null,
-                dateAdded = 0L,
-            )
+            ).also { createdFiles += it }
+            TestTracks.track(file, "Track $index", durationMs = 5_000)
         }
 
         controller.setQueue(tracks, startIndex = 0)
@@ -233,10 +268,19 @@ class PlayerControllerInstrumentedTest {
             controller.state.first { it.shuffleModeEnabled }
         }
 
-        // Next still moves through the queue while shuffle is on.
+        // Next still moves through the queue while shuffle is on. Repeat All is
+        // enabled for this step because the shuffle order is a random
+        // permutation: the current item can legitimately be last in it, and then
+        // Media3 correctly reports that there is no next item (the UI disables
+        // the button). Wrapping makes the check independent of that permutation.
+        controller.setRepeatMode(PlaybackRepeatMode.ALL)
         controller.seekToNext()
         withTimeout(PLAYBACK_TIMEOUT_MS) {
             controller.state.first { it.queue.currentIndex != shuffled.queue.currentIndex }
+        }
+        controller.setRepeatMode(PlaybackRepeatMode.OFF)
+        withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first { it.repeatMode == PlaybackRepeatMode.OFF }
         }
 
         // Changing the queue while shuffle is on keeps the playlist coherent
@@ -319,47 +363,12 @@ class PlayerControllerInstrumentedTest {
     }
 
     /** A 30 s silent WAV track so playback never advances mid-test. */
-    private fun wavTrack(name: String, title: String): Track {        val file = createWavFile("queue-$name-${System.nanoTime()}.wav", durationMs = 30_000)
-        return Track(
-            uri = Uri.fromFile(file).toString(),
-            title = title,
-            artist = "Test Artist",
-            album = "Test Album",
-            durationMs = 30_000,
-            albumId = null,
-            artworkUri = null,
-            dateAdded = 0L,
-        )
-    }
-
-    /** Writes a mono 16-bit PCM WAV of silence. */
-    private fun createWavFile(name: String, durationMs: Int): File {
-        val sampleRate = 8_000
-        val channels = 1
-        val bitsPerSample = 16
-        val sampleCount = sampleRate * durationMs / 1_000
-        val bytesPerSample = bitsPerSample / 8
-        val dataSize = sampleCount * channels * bytesPerSample
-
-        val buffer = ByteBuffer.allocate(44 + dataSize).order(ByteOrder.LITTLE_ENDIAN)
-        buffer.put("RIFF".toByteArray(Charsets.US_ASCII))
-        buffer.putInt(36 + dataSize)
-        buffer.put("WAVE".toByteArray(Charsets.US_ASCII))
-        buffer.put("fmt ".toByteArray(Charsets.US_ASCII))
-        buffer.putInt(16)
-        buffer.putShort(1) // PCM
-        buffer.putShort(channels.toShort())
-        buffer.putInt(sampleRate)
-        buffer.putInt(sampleRate * channels * bytesPerSample)
-        buffer.putShort((channels * bytesPerSample).toShort())
-        buffer.putShort(bitsPerSample.toShort())
-        buffer.put("data".toByteArray(Charsets.US_ASCII))
-        buffer.putInt(dataSize)
-
-        val file = File(context.cacheDir, name)
-        file.writeBytes(buffer.array())
-        createdFiles += file
-        return file
+    private fun wavTrack(name: String, title: String): Track {
+        val file = TestTracks.wavFile(
+            context = context,
+            name = "queue-$name-${System.nanoTime()}.wav",
+        ).also { createdFiles += it }
+        return TestTracks.track(file, title)
     }
 
     private companion object {

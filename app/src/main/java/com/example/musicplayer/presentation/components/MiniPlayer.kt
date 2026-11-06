@@ -80,7 +80,8 @@ fun MiniPlayer(
                 .padding(start = 12.dp, end = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ArtworkTile(
+            ArtworkImage(
+                artworkUri = state.artworkUri,
                 title = state.title,
                 modifier = Modifier.size(42.dp),
                 cornerRadius = 8.dp,

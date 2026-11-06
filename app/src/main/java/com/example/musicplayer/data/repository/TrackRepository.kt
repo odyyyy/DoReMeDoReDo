@@ -42,6 +42,12 @@ interface TrackRepository {
     suspend fun count(): Int
 
     /**
+     * Returns the artwork URIs still referenced by the library, used to delete
+     * stored artwork of removed or re-tagged tracks.
+     */
+    suspend fun getArtworkUris(): List<String>
+
+    /**
      * Inserts new tracks and updates rows that already exist for the same URI.
      */
     suspend fun upsertAll(tracks: List<TrackEntity>)

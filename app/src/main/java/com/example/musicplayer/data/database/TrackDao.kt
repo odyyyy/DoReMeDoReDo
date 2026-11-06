@@ -57,6 +57,14 @@ interface TrackDao {
     suspend fun count(): Int
 
     /**
+     * Returns the artwork URIs referenced by the library (one row per track,
+     * duplicates included). Used to delete stored artwork that no track points
+     * at any more.
+     */
+    @Query("SELECT artworkUri FROM tracks WHERE artworkUri IS NOT NULL")
+    suspend fun getArtworkUris(): List<String?>
+
+    /**
      * Inserts new tracks and updates existing rows that share a URI.
      */
     @Upsert

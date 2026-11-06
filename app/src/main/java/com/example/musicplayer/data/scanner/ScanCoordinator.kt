@@ -1,6 +1,7 @@
 package com.example.musicplayer.data.scanner
 
 import android.net.Uri
+import com.example.musicplayer.data.artwork.ArtworkStore
 import com.example.musicplayer.data.database.TrackEntity
 import com.example.musicplayer.data.database.isSameFile
 import com.example.musicplayer.data.database.toTrackEntity
@@ -31,6 +32,9 @@ import javax.inject.Singleton
  *    wipe indexed tracks.
  *  - Unchanged files (same URI, size, and modified time) are not re-read, so
  *    rescanning a large library is cheap.
+ *  - Extracted artwork is stored as a content-addressed file before the row is
+ *    written, and stored images that the reconciled library no longer references
+ *    are deleted afterwards, so the artwork store tracks the library exactly.
  *  - Only one scan runs at a time: concurrent requests are dropped with
  *    [ScanOutcome.Skipped] instead of stacking up.
  *  - The persistent "folder indexed" marker ([ScanStatusRepository]) is written
@@ -46,6 +50,7 @@ class ScanCoordinator @Inject constructor(
     private val metadataExtraction: MetadataExtraction,
     private val trackRepository: TrackRepository,
     private val scanStatusRepository: ScanStatusRepository,
+    private val artworkStore: ArtworkStore,
     private val ioDispatcher: CoroutineDispatcher,
 ) {
 
@@ -185,8 +190,12 @@ class ScanCoordinator @Inject constructor(
                         metadata = result.metadata,
                         // Preserve first-indexed time across rescans.
                         dateAdded = existing?.dateAdded ?: now,
-                        // Keep any cached artwork reference already stored.
-                        artworkUri = existing?.artworkUri,
+                        // This file is being (re)read, so its artwork reference is
+                        // rebuilt from the freshly extracted bytes. Re-storing is
+                        // content addressed: identical bytes keep the same URI and
+                        // a changed cover resolves to a new file, while the stale
+                        // one is dropped by the cleanup below.
+                        artworkUri = result.metadata.artworkBytes?.let { artworkStore.store(it) },
                     )
                     if (existing == null) added++ else updated++
                 }
@@ -213,6 +222,12 @@ class ScanCoordinator @Inject constructor(
         val discoveredUris = discovered.mapTo(HashSet(discovered.size)) { it.uri.toString() }
         val removedUris = existingByUri.keys - discoveredUris
         trackRepository.deleteByUris(removedUris.toList())
+
+        // Only once the library is final: every stored image the library no
+        // longer references belongs to a removed track or a replaced cover. This
+        // is best effort by contract (ArtworkStore never throws), so an artwork
+        // problem can never fail an otherwise successful scan.
+        artworkStore.deleteUnreferenced(trackRepository.getArtworkUris())
 
         return ScanPersistence(
             added = added,

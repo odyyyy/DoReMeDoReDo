@@ -32,6 +32,9 @@ class GetTracksUseCase @Inject constructor(
  *
  * - Empty or blank [query] returns every track, just ordered.
  * - [query] matches title, artist, or album, case-insensitively.
+ * - The match is done with a case-insensitive `contains` instead of lowercasing
+ *   every field first: with a large library that saves three string allocations
+ *   per track on every debounced keystroke.
  * - Text comparisons are case-insensitive; `sortedWith` is stable, so tracks
  *   with equal keys keep the storage order (title) provided by Room.
  */
@@ -40,14 +43,14 @@ fun filterAndSortTracks(
     query: String,
     sort: TrackSort,
 ): List<Track> {
-    val needle = query.trim().lowercase()
+    val needle = query.trim()
     val filtered = if (needle.isEmpty()) {
         tracks
     } else {
         tracks.filter { track ->
-            track.title.lowercase().contains(needle) ||
-                track.artist.lowercase().contains(needle) ||
-                track.album.lowercase().contains(needle)
+            track.title.contains(needle, ignoreCase = true) ||
+                track.artist.contains(needle, ignoreCase = true) ||
+                track.album.contains(needle, ignoreCase = true)
         }
     }
     return filtered.sortedWith(sort.comparator())

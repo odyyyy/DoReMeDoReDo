@@ -18,8 +18,17 @@ class GetAlbumsUseCase @Inject constructor(
     private val getTracksUseCase: GetTracksUseCase,
 ) {
     /** Observes every album grouped from indexed tracks, sorted by title. */
-    operator fun invoke(): Flow<List<Album>> =
-        getTracksUseCase().map { tracks -> groupTracksIntoAlbums(tracks) }
+    operator fun invoke(): Flow<List<Album>> = invoke(getTracksUseCase())
+
+    /**
+     * Groups albums from an already-subscribed track stream.
+     *
+     * A caller that also needs the tracks themselves (search, sorting) shares one
+     * Room subscription and one entity-to-domain mapping this way, instead of
+     * starting a second query and a second mapping pass per library change.
+     */
+    operator fun invoke(tracks: Flow<List<Track>>): Flow<List<Album>> =
+        tracks.map { groupTracksIntoAlbums(it) }
 }
 
 /** Pure grouping helper for domain tracks into albums. */

@@ -15,9 +15,31 @@ import com.example.musicplayer.MainActivity
 /**
  * Background playback service and the single owner of the app's ExoPlayer.
  *
- * Media3 creates the media notification and handles foreground-service
- * transitions while playback is ongoing, so playback survives the activity
- * being stopped and the screen being turned off.
+ * Interruption handling follows Media3's guidance and is deliberately delegated
+ * to ExoPlayer rather than re-implemented here:
+ *
+ * - **Audio focus** is requested by the player itself
+ *   ([ExoPlayer.Builder.setAudioAttributes] with `handleAudioFocus = true`, usage
+ *   `USAGE_MEDIA`, content type `AUDIO_CONTENT_TYPE_MUSIC`). A permanent loss
+ *   pauses playback, a transient loss pauses and resumes when focus returns, and
+ *   a transient loss that allows ducking lowers the volume. The app therefore
+ *   never plays on top of a phone call or another music app.
+ * - **Becoming noisy** ([ExoPlayer.Builder.setHandleAudioBecomingNoisy]`(true)`)
+ *   pauses playback when headphones or a Bluetooth sink disconnect.
+ * - **Screen off** is covered by [ExoPlayer.Builder.setWakeMode] with
+ *   `C.WAKE_MODE_LOCAL`, which keeps the CPU and a partial wake lock while audio
+ *   plays.
+ * - **Foreground service and notification** are provided by
+ *   [MediaSessionService]: it promotes itself to the foreground while playback
+ *   is ongoing and publishes the standard media notification with previous,
+ *   play/pause and next actions plus the session activity set below.
+ * - **Task removal** keeps the default [MediaSessionService.onTaskRemoved]
+ *   behaviour: swiping the app away while playing leaves playback and the
+ *   notification running; when nothing is playing the session is stopped.
+ *
+ * Playback is not restored after the process is killed; see the notes in
+ * `TASKS.md` (Task 18) for the documented limitation and the Media3
+ * `onPlaybackResumption` path that would restore it.
  */
 class PlaybackService : MediaSessionService() {
 
@@ -28,23 +50,21 @@ class PlaybackService : MediaSessionService() {
         super.onCreate()
 
         val mediaSourceFactory = ProgressiveMediaSource.Factory(DefaultDataSource.Factory(this))
+
+        // Audio attributes define how the system treats this app's audio, so
+        // they must describe music playback and let ExoPlayer manage audio
+        // focus; both are what drives the interruption behaviour above.
+        val audioAttributes = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+            .build()
+
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(mediaSourceFactory)
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(C.USAGE_MEDIA)
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                    .build(),
-                /* handleAudioFocus = */ true,
-            )
+            .setAudioAttributes(audioAttributes, /* handleAudioFocus = */ true)
+            .setHandleAudioBecomingNoisy(true)
+            .setWakeMode(C.WAKE_MODE_LOCAL)
             .build()
-            .apply {
-                // Pause when headphones are unplugged, matching platform media
-                // app behaviour.
-                setHandleAudioBecomingNoisy(true)
-                // Keep the CPU awake while audio plays with the screen off.
-                setWakeMode(C.WAKE_MODE_LOCAL)
-            }
 
         mediaSession = MediaSession.Builder(this, player)
             .setSessionActivity(openAppPendingIntent())

@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -130,10 +131,14 @@ private fun AlbumsBody(
                 items(
                     items = albumsState.albums,
                     key = { it.id },
+                    // One card layout for the whole grid: lets the lazy grid reuse
+                    // the same composed nodes while scrolling.
+                    contentType = { "album" },
                 ) { album ->
+                    val onClick = remember(album, onAlbumSelected) { { onAlbumSelected(album) } }
                     AlbumCard(
                         album = album,
-                        onClick = { onAlbumSelected(album) },
+                        onClick = onClick,
                     )
                 }
             }

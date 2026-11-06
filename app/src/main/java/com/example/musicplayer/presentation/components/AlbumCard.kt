@@ -39,7 +39,8 @@ fun AlbumCard(
         shape = RoundedCornerShape(14.dp),
     ) {
         Column(modifier = Modifier.padding(10.dp)) {
-            ArtworkTile(
+            ArtworkImage(
+                artworkUri = album.artworkUri,
                 title = album.title,
                 modifier = Modifier
                     .fillMaxWidth()

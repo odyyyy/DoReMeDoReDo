@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -57,21 +58,39 @@ class LibraryViewModel @Inject constructor(
 
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
+    /**
+     * Single shared subscription to the indexed library.
+     *
+     * Both the Tracks state and the Albums state are derived from this stream, so
+     * one library change costs one Room query and one entity-to-domain mapping
+     * instead of one per screen. `WhileSubscribed` keeps the query alive only
+     * while a screen actually collects one of the derived states, and the replay
+     * cache hands the current library to a screen that subscribes later (for
+     * example when the user switches to the Albums tab).
+     */
+    private val domainTracks: Flow<List<Track>> = getTracksUseCase().shareIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        replay = 1,
+    )
+
     private val _tracksUiState = MutableStateFlow<TracksUiState>(TracksUiState.Loading)
 
     val tracksUiState: StateFlow<TracksUiState> = _tracksUiState.asStateFlow()
 
     val albumsUiState: StateFlow<AlbumsUiState> = combine(
-        getAlbumsUseCase(),
+        getAlbumsUseCase(domainTracks),
         _searchQuery,
     ) { albums, query ->
-        val needle = query.trim().lowercase()
+        val needle = query.trim()
         val filtered = if (needle.isEmpty()) {
             albums
         } else {
+            // Case-insensitive matching without lowercasing every album title
+            // and artist on each keystroke.
             albums.filter { album ->
-                album.title.lowercase().contains(needle) ||
-                    album.artist.lowercase().contains(needle)
+                album.title.contains(needle, ignoreCase = true) ||
+                    album.artist.contains(needle, ignoreCase = true)
             }
         }
         AlbumsUiState.Ready(
@@ -174,7 +193,7 @@ class LibraryViewModel @Inject constructor(
         _tracksUiState.value = TracksUiState.Loading
         tracksJob = viewModelScope.launch {
             buildTracksUiState(
-                tracks = getTracksUseCase(),
+                tracks = domainTracks,
                 searchQuery = _searchQuery,
                 sort = _trackSort,
             ).collect { state ->

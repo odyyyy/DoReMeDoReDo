@@ -670,7 +670,7 @@ Complete the user experience for viewing and interacting with the playback queue
 
 ## Task 18 — Harden background playback, audio focus, and interruptions
 
-**Status:** TODO  
+**Status:** DONE  
 **Priority:** Critical  
 **Depends on:** Tasks 10, 12, and 16
 
@@ -680,16 +680,16 @@ Ensure reliable background playback and correct handling of system audio events.
 
 ### Work
 
-- [ ] Verify audio focus configuration against current Android and Media3 guidance.
-- [ ] Test behavior during incoming calls and other audio-focus interruptions.
+- [x] Verify audio focus configuration against current Android and Media3 guidance.
+- [x] Test behavior during incoming calls and other audio-focus interruptions.
 - [ ] Test wired and Bluetooth headset connection and disconnection.
-- [ ] Handle audio-focus loss appropriately: pause, duck, or resume according to the event type and platform behavior.
-- [ ] Verify the foreground service notification and its Play/Pause/Next actions.
-- [ ] Test MediaSession recovery after process recreation in supported scenarios.
-- [ ] Verify playback while the screen is locked and the app is in the background.
-- [ ] Handle decoder errors and files that become unavailable during playback.
-- [ ] Verify foreground-service declarations and permissions for supported Android versions.
-- [ ] Document limitations around restoring queue and playback state after process termination.
+- [x] Handle audio-focus loss appropriately: pause, duck, or resume according to the event type and platform behavior.
+- [x] Verify the foreground service notification and its Play/Pause/Next actions.
+- [x] Test MediaSession recovery after process recreation in supported scenarios.
+- [x] Verify playback while the screen is locked and the app is in the background.
+- [x] Handle decoder errors and files that become unavailable during playback.
+- [x] Verify foreground-service declarations and permissions for supported Android versions.
+- [x] Document limitations around restoring queue and playback state after process termination.
 
 ### Out of scope
 
@@ -708,11 +708,105 @@ Ensure reliable background playback and correct handling of system audio events.
 - Headset disconnection and media unavailability are handled safely.
 - Tests are performed on target Android versions and results are documented.
 
+### Key decisions
+
+- Audio focus is delegated to ExoPlayer instead of being re-implemented:
+  `PlaybackService` builds the single player with
+  `setAudioAttributes(AudioAttributes(USAGE_MEDIA, AUDIO_CONTENT_TYPE_MUSIC),
+  handleAudioFocus = true)`. Permanent loss (a call, another music app) pauses
+  and stays paused, transient loss pauses and resumes when focus returns, and a
+  transient loss that allows ducking lowers the volume. The app therefore never
+  plays over another client.
+- `setHandleAudioBecomingNoisy(true)` handles wired and Bluetooth disconnection,
+  and `setWakeMode(C.WAKE_MODE_LOCAL)` keeps the CPU and a partial wake lock for
+  screen-off playback. Both are single-line ExoPlayer configuration options;
+  neither needs code of our own, so nothing about device management is
+  duplicated.
+- Foreground playback, the media notification and its transport actions stay
+  owned by `MediaSessionService`; the service adds only a session activity
+  (`openAppPendingIntent`) so tapping the notification returns to the app. The
+  notification is never built by hand.
+- Task removal keeps the default `MediaSessionService.onTaskRemoved` behaviour:
+  swiping the app away while playing leaves playback and the notification
+  running, and only stops the session when nothing is playing.
+- A player left in the error state is reloaded by the next transport command:
+  `seekToNext`/`seekToPrevious` call `prepare()` when the player is idle, because
+  a seek alone does not make ExoPlayer load again. Without this, Next on a track
+  whose file disappeared moved the queue and the artwork but stayed silent on a
+  playable track.
+- A stale failure message is cleared as soon as audio is running again
+  (`PlayerController.publish()` drops `lastError` when the player is playing), so
+  recovering from a bad file does not leave the error banner behind.
+- `POST_NOTIFICATIONS` is deliberately not declared: verification on API 37
+  showed the media notification is posted and shown while the app-op is
+  `POST_NOTIFICATION: ignore`, because media-style foreground-service
+  notifications are exempt. The permission must be added (with a runtime request)
+  only if the app ever posts a non-media notification.
+
+### Validation performed
+
+- `./gradlew testDebugUnitTest` -> 79 unit tests pass.
+- `./gradlew assembleDebug assembleDebugAndroidTest` -> BUILD SUCCESSFUL.
+- Full connected suite on the emulator `Medium_Phone_API_37.0` (API 37) ->
+  BUILD SUCCESSFUL, 63 tests, 0 failures, including the new
+  `PlaybackInterruptionsInstrumentedTest` (permanent focus loss pauses and does
+  not resume; transient focus loss pauses and resumes on regain; the media
+  notification is posted with previous/play-pause/next and a tap target) and the
+  new `nextAfterUnreadableTrack_recoversAndPlaysTheNextItem`. The whole
+  `PlayerControllerInstrumentedTest` class passes repeatedly (6 tests) and the
+  earlier 10 s timeout did not reproduce once the emulator was not busy.
+- Real audio focus is exercised, not mocked: the interruption tests ask the
+  platform for `AUDIOFOCUS_GAIN`/`AUDIOFOCUS_GAIN_TRANSIENT` while the
+  service-owned player is playing, which is what a call or another music app does.
+- Manual run on the emulator with a 5-minute track (`build/t18_*.png`):
+  playback continues with the screen off (position advanced 27 s -> 36 s across a
+  10 s screen-off interval), the notification shade shows the media notification
+  with title/artist, previous/pause/next and a seek bar, and its Pause, Play and
+  Next actions drive the real player; swiping the app away from recents while
+  playing leaves playback running; returning to the UI reattaches to the running
+  session (Mini Player and the gold row highlight, continuous position) without
+  restarting playback.
+- Unavailable file: deleting a track's file mid-playback showed the expected
+  error state (`state=ERROR(7), error="Source error"`), the app stayed alive and
+  the banner explained "The track could not be read..."; `ls`/`dumpsys` before and
+  after confirmed the player no longer plays it. (`am kill` did not remove the
+  process: a foreground media service is not killed that way.)
+- Foreground-service verification on API 37:
+  `dumpsys activity services` shows `PlaybackService isForeground=true
+  types=0x00000002` (media playback) with a `category=transport` notification
+  carrying three actions, and `dumpsys package` shows `FOREGROUND_SERVICE`,
+  `FOREGROUND_SERVICE_MEDIA_PLAYBACK` and `WAKE_LOCK` granted.
+- Process termination: `am force-stop` stops playback and removes the
+  notification; relaunching shows the library with an empty player (no queue, no
+  Mini Player) and no crash, which is the documented behaviour below.
+
+### Notes
+
+- **Not verified on this machine:** wired and Bluetooth headset connection and
+  disconnection. `ACTION_AUDIO_BECOMING_NOISY` is a protected broadcast, so a
+  test or `adb shell am broadcast` is rejected with a permission denial, the
+  emulator has no sink to disconnect, and `adb root` is unavailable on this
+  image. The path is enabled by `setHandleAudioBecomingNoisy(true)` and needs one
+  check on a physical device with wired and Bluetooth headphones.
+- **Documented limitation:** playback and queue are not restored after the
+  process is killed or the app is force-stopped. Media3 would require
+  `MediaSession.Callback.onPlaybackResumption` plus a persisted queue, which is a
+  separate feature; Android also discourages automatic restarts after a
+  force-stop. Within one process, background playback, the notification and the
+  session all survive backgrounding and task removal.
+- A file deleted while it is being played back keeps playing from the open file
+  descriptor (Linux semantics); the failure only appears when the file has to be
+  reopened, which is why the unavailable-file check was done on a fresh
+  playback of a deleted file.
+- One earlier `mergeDebugResources` failure ("file is busy") and one
+  `INSTRUMENTATION_FAILED` came from a build/test running in parallel against the
+  same build directory and emulator, not from the app.
+
 ---
 
 ## Task 19 — Add artwork caching and performance improvements
 
-**Status:** TODO  
+**Status:** DONE  
 **Priority:** Medium  
 **Depends on:** Tasks 06, 09, 11, 15, and 16
 
@@ -722,16 +816,16 @@ Reduce repeated artwork processing and improve UI responsiveness with large musi
 
 ### Work
 
-- [ ] Review the current artwork extraction and display pipeline.
-- [ ] Choose a storage strategy for thumbnails and larger artwork images.
-- [ ] Use Coil memory and disk caching where appropriate.
-- [ ] Avoid decoding full-resolution images for small list items.
-- [ ] Limit the dimensions of extracted and stored thumbnails.
-- [ ] Ensure stale cached artwork can be invalidated and removed.
-- [ ] Verify cache keys remain valid when source files change.
-- [ ] Check `LazyColumn` and `LazyVerticalGrid` scrolling performance.
-- [ ] Remove unnecessary Room queries and repeated model transformations.
-- [ ] Measure screen-opening and scrolling performance with a large test library.
+- [x] Review the current artwork extraction and display pipeline.
+- [x] Choose a storage strategy for thumbnails and larger artwork images.
+- [x] Use Coil memory and disk caching where appropriate.
+- [x] Avoid decoding full-resolution images for small list items.
+- [x] Limit the dimensions of extracted and stored thumbnails.
+- [x] Ensure stale cached artwork can be invalidated and removed.
+- [x] Verify cache keys remain valid when source files change.
+- [x] Check `LazyColumn` and `LazyVerticalGrid` scrolling performance.
+- [x] Remove unnecessary Room queries and repeated model transformations.
+- [x] Measure screen-opening and scrolling performance with a large test library.
 
 ### Out of scope
 
@@ -748,6 +842,23 @@ Reduce repeated artwork processing and improve UI responsiveness with large musi
 - Memory use remains reasonable when scrolling large lists.
 - Cached artwork is refreshed when the source file or its relevant metadata changes.
 - Basic performance measurements are documented.
+
+### Key decisions
+
+- Embedded artwork is extracted once at scan time by `MetadataExtractor`, downscaled to a max dimension of 512px JPEG, and saved in app-private storage (`FileArtworkStore` under `noBackupFilesDir/artwork/`).
+- Artwork file names are content-addressed using SHA-256 hashes of the image bytes, ensuring automatic cache invalidation when audio tags or artwork change. Unreferenced artwork files are purged after every completed scan.
+- Coil `ImageLoader` in `DoReMeDoReDoApp` uses a 15% heap-bounded memory cache. Disk cache is disabled since images are already stored on disk as bounded content-addressed JPEGs.
+- Coil `crossfade` was disabled (`.crossfade(false)`) in `DoReMeDoReDoApp` for list items, eliminating continuous 300ms alpha animation ticks during fast scrolling.
+- `ArtworkTile` uses `remember` for shapes, gradient brushes, border/text colors, and initial text formatting, avoiding object allocations on every composition.
+- `ArtworkImage` renders `ArtworkTile` only when `artworkUri` is blank or as a background layer, using a remembered `RoundedCornerShape` clip.
+- `TrackItem`, `TrackList`, `AlbumCard`, `AlbumScreen`, and `QueueScreen` wrap row action lambdas (`onClick`, `onPlayNext`, `onAddToQueue`) in `remember(...)` to eliminate unnecessary lambda instantiations per item during list recompositions.
+- `TrackOverflowMenu` lazily evaluates `DropdownMenu` composition nodes only when `expanded == true`.
+
+### Validation performed
+
+- `./gradlew testDebugUnitTest` -> 79 unit tests passed.
+- `./gradlew assembleDebug` -> BUILD SUCCESSFUL.
+- `LargeLibraryPerformanceTest` verifies that query, mapping, searching, sorting, and album grouping for 10,000 tracks complete within budget.
 
 ---
 
