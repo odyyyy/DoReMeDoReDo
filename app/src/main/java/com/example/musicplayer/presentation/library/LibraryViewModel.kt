@@ -3,7 +3,6 @@ package com.example.musicplayer.presentation.library
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.musicplayer.data.repository.TrackRepository
 import com.example.musicplayer.data.scanner.ScanResult
 import com.example.musicplayer.data.scanner.ScanState
 import com.example.musicplayer.domain.model.CompletedScan
@@ -45,7 +44,6 @@ class LibraryViewModel @Inject constructor(
     private val checkFolderPermissionUseCase: CheckFolderPermissionUseCase,
     private val scanMusicFolderUseCase: ScanMusicFolderUseCase,
     private val scanStatusRepository: ScanStatusRepository,
-    private val trackRepository: TrackRepository,
     private val getTracksUseCase: GetTracksUseCase,
     private val getAlbumsUseCase: GetAlbumsUseCase,
     private val playerController: PlayerController,
@@ -273,20 +271,6 @@ class LibraryViewModel @Inject constructor(
         // loaded from Room, no filesystem scan runs on startup. Rescanning stays
         // a manual action.
         if (completedScan?.folderUri == folder.uri) {
-            // A library indexed before artwork extraction existed has rows with
-            // artworkScanned == false. Run one backfill scan instead of asking
-            // the user to clear and re-select the folder; once every row is
-            // checked this branch never triggers again.
-            if (trackRepository.hasTracksWithoutArtworkScan()) {
-                _uiState.value = LibraryUiState.Ready(
-                    folder = folder,
-                    scanState = ScanState.Scanning(folder.uri),
-                    lastScanResult = retainedScanResult(folder),
-                )
-                startScan(folder)
-                return
-            }
-
             _uiState.value = LibraryUiState.Ready(
                 folder = folder,
                 scanState = ScanState.Idle,
