@@ -928,7 +928,7 @@ DONE: Make animation for GraphicEq icon in TrackItem when track is playing. chan
 
 DONE: Fix a bug displaying the number of tracks in the queue (tracks number e.g. 305 is out of the badge) on the all tracks screen
 
-TODO:read and arrange the order of tracks in an album based on a cue file
+DONE:read and arrange the order of tracks in an album. Album position is resolved from the audio track/disc tags, then a folder cue sheet, then numbering in the file name; album details and album playback follow disc/track order, with unnumbered tracks last. Cue sheets are only used when each FILE block holds one TRACK, so single-file cue albums stay one playable item. Existing libraries need one Rescan to backfill the order.
 
 TODO:fix low fps performance when scrolling through the track list quickly on the "all tracks" tab when the number of tracks reaches 300+
 

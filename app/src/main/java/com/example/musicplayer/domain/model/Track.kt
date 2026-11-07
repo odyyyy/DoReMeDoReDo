@@ -12,6 +12,9 @@ package com.example.musicplayer.domain.model
  * @property artist Track artist.
  * @property album Album name.
  * @property durationMs Duration in milliseconds, or `0` when unavailable.
+ * @property trackNumber Track position within its disc, or `null` when the
+ *   library has no reliable number (tag, cue sheet, or file name).
+ * @property discNumber Disc number for multi-disc releases, or `null`.
  * @property albumId Optional album-grouping key derived from tags.
  * @property artworkUri Optional local artwork reference, or `null` when the
  *   track has no artwork.
@@ -24,6 +27,8 @@ data class Track(
     val artist: String,
     val album: String,
     val durationMs: Long,
+    val trackNumber: Int? = null,
+    val discNumber: Int? = null,
     val albumId: String?,
     val artworkUri: String?,
     val dateAdded: Long,

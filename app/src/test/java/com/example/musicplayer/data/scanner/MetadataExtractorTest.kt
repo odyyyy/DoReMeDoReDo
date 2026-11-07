@@ -124,6 +124,69 @@ class MetadataExtractorTest {
     }
 
     @Test
+    fun parseIndexNumber_handlesCommonTagFormats() {
+        assertEquals(3, MetadataExtractor.parseIndexNumber("3"))
+        assertEquals(3, MetadataExtractor.parseIndexNumber("03/12"))
+        assertEquals(12, MetadataExtractor.parseIndexNumber(" 12 "))
+        assertNull(MetadataExtractor.parseIndexNumber("0"))
+        assertNull(MetadataExtractor.parseIndexNumber("0/12"))
+        assertNull(MetadataExtractor.parseIndexNumber("track 3"))
+        assertNull(MetadataExtractor.parseIndexNumber(""))
+        assertNull(MetadataExtractor.parseIndexNumber(null))
+    }
+
+    @Test
+    fun parseFileNameOrder_readsCommonRipConventions() {
+        assertEquals(FileNameOrder(1, null), MetadataExtractor.parseFileNameOrder("01 - Song.flac"))
+        assertEquals(FileNameOrder(2, null), MetadataExtractor.parseFileNameOrder("02. Song.mp3"))
+        assertEquals(FileNameOrder(3, null), MetadataExtractor.parseFileNameOrder("[03] Song.flac"))
+        assertEquals(FileNameOrder(4, null), MetadataExtractor.parseFileNameOrder("04 Song.flac"))
+        assertEquals(FileNameOrder(2, 1), MetadataExtractor.parseFileNameOrder("1-02 Song.flac"))
+        assertEquals(FileNameOrder(5, 2), MetadataExtractor.parseFileNameOrder("2.05 Song.flac"))
+        assertEquals(FileNameOrder(null, null), MetadataExtractor.parseFileNameOrder("1999 Song.flac"))
+        assertEquals(FileNameOrder(null, null), MetadataExtractor.parseFileNameOrder("Song.flac"))
+    }
+
+    @Test
+    fun buildMetadata_prefersTagThenCueThenFileName() {
+        val fromTag = MetadataExtractor.buildMetadata(
+            fileName = "05 - File.flac",
+            rawTitle = null,
+            rawArtist = null,
+            rawAlbum = null,
+            rawDuration = null,
+            rawTrackNumber = "07/12",
+            rawDiscNumber = "2",
+            cueTrackNumber = 6,
+            cueDiscNumber = 3,
+        )
+        assertEquals(7, fromTag.trackNumber)
+        assertEquals(2, fromTag.discNumber)
+
+        val fromCue = MetadataExtractor.buildMetadata(
+            fileName = "05 - File.flac",
+            rawTitle = null,
+            rawArtist = null,
+            rawAlbum = null,
+            rawDuration = null,
+            cueTrackNumber = 6,
+            cueDiscNumber = 3,
+        )
+        assertEquals(6, fromCue.trackNumber)
+        assertEquals(3, fromCue.discNumber)
+
+        val fromFileName = MetadataExtractor.buildMetadata(
+            fileName = "05 - File.flac",
+            rawTitle = null,
+            rawArtist = null,
+            rawAlbum = null,
+            rawDuration = null,
+        )
+        assertEquals(5, fromFileName.trackNumber)
+        assertNull(fromFileName.discNumber)
+    }
+
+    @Test
     fun calculateInSampleSize_keepsDecodedDimensionsWithinBounds() {
         assertEquals(1, MetadataExtractor.calculateInSampleSize(512, 512, 512))
         assertEquals(2, MetadataExtractor.calculateInSampleSize(513, 513, 512))

@@ -16,6 +16,9 @@ import androidx.room.PrimaryKey
  * @property artist Track artist.
  * @property album Album name.
  * @property durationMs Duration in milliseconds, or `0` when unavailable.
+ * @property trackNumber Track position within its disc, or `null` when no
+ *   reliable number exists. Used to order an album's tracks.
+ * @property discNumber Disc number for multi-disc releases, or `null`.
  * @property albumId Optional album-grouping key derived from tags.
  * @property artworkUri Optional reference to local artwork, or `null` when the
  *   track has no artwork.
@@ -23,6 +26,10 @@ import androidx.room.PrimaryKey
  *   artwork. Rows indexed before artwork extraction existed start as `false`,
  *   so the next scan backfills them; a track that genuinely has no artwork is
  *   marked `true` and is not re-read on every rescan.
+ * @property orderScanned True once the scanner has tried to resolve this
+ *   track's position (tag or cue sheet). Rows indexed before ordering existed
+ *   start as `false`, so the next scan backfills them; a track that genuinely
+ *   has no number is marked `true` and is not re-read on every rescan.
  * @property folderUri URI of the parent folder that was scanned.
  * @property fileSize File size in bytes, or `0` when the provider did not
  *   report it.
@@ -49,10 +56,14 @@ data class TrackEntity(
     val artist: String,
     val album: String,
     val durationMs: Long,
+    val trackNumber: Int? = null,
+    val discNumber: Int? = null,
     val albumId: String?,
     val artworkUri: String?,
     @ColumnInfo(defaultValue = "0")
     val artworkScanned: Boolean = false,
+    @ColumnInfo(defaultValue = "0")
+    val orderScanned: Boolean = false,
     val folderUri: String,
     val fileSize: Long,
     val lastModified: Long,

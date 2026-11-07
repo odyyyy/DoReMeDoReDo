@@ -19,12 +19,16 @@ class GetAlbumDetailUseCaseTest {
         artist: String = "Artist One",
         album: String = "Album One",
         albumId: String? = null,
+        trackNumber: Int? = null,
+        discNumber: Int? = null,
     ) = TrackEntity(
         uri = uri,
         title = title,
         artist = artist,
         album = album,
         durationMs = 200_000L,
+        trackNumber = trackNumber,
+        discNumber = discNumber,
         albumId = albumId,
         artworkUri = null,
         folderUri = "folder://1",
@@ -50,6 +54,44 @@ class GetAlbumDetailUseCaseTest {
         assertEquals("id-album-1", detail!!.album.id)
         assertEquals(2, detail.tracks.size)
         assertEquals(listOf("uri://1", "uri://2"), detail.tracks.map { it.uri })
+    }
+
+    @Test
+    fun `GetAlbumDetailUseCase orders tracks by disc and track number`() = runTest {
+        val entities = listOf(
+            trackEntity("uri://5", "Fifth", albumId = "id-album-1", trackNumber = 5),
+            trackEntity("uri://2", "Second", albumId = "id-album-1", trackNumber = 2),
+            trackEntity("uri://1", "First", albumId = "id-album-1", trackNumber = 1),
+            trackEntity("uri://4", "Fourth", albumId = "id-album-1", trackNumber = 4),
+            trackEntity("uri://3", "Third", albumId = "id-album-1", trackNumber = 3),
+        )
+        val useCase = GetAlbumDetailUseCase(GetTracksUseCase(FakeTrackRepository(entities)))
+
+        val detail = useCase("id-album-1").first()
+
+        assertNotNull(detail)
+        assertEquals(
+            listOf("uri://1", "uri://2", "uri://3", "uri://4", "uri://5"),
+            detail!!.tracks.map { it.uri },
+        )
+    }
+
+    @Test
+    fun `GetAlbumDetailUseCase keeps discs in order and numbered tracks before unnumbered`() = runTest {
+        val entities = listOf(
+            trackEntity("uri://disc2-1", "Disc 2 Track 1", albumId = "id-album-1", trackNumber = 1, discNumber = 2),
+            trackEntity("uri://disc1-2", "Disc 1 Track 2", albumId = "id-album-1", trackNumber = 2, discNumber = 1),
+            trackEntity("uri://none", "No Number", albumId = "id-album-1"),
+            trackEntity("uri://disc1-1", "Disc 1 Track 1", albumId = "id-album-1", trackNumber = 1, discNumber = 1),
+        )
+        val useCase = GetAlbumDetailUseCase(GetTracksUseCase(FakeTrackRepository(entities)))
+
+        val detail = useCase("id-album-1").first()
+
+        assertEquals(
+            listOf("uri://disc1-1", "uri://disc1-2", "uri://disc2-1", "uri://none"),
+            detail!!.tracks.map { it.uri },
+        )
     }
 
     @Test

@@ -11,6 +11,9 @@ package com.example.musicplayer.domain.model
  * @property artist Track artist, falling back to [UNKNOWN_ARTIST].
  * @property album Album name, falling back to [UNKNOWN_ALBUM].
  * @property durationMs Track duration in milliseconds, or `0` when unavailable.
+ * @property trackNumber Track position within its disc, resolved from the tag,
+ *   the folder cue sheet, or the file name; `null` when none applies.
+ * @property discNumber Disc number from the tag or cue sheet, or `null`.
  * @property albumId Stable album-grouping key derived from normalized album and
  *   artist tags, or `null` when the file has no album tag.
  * @property artworkBytes Bounded embedded artwork (downscaled JPEG), or `null`
@@ -22,6 +25,8 @@ data class TrackMetadata(
     val album: String,
     val durationMs: Long,
     val albumId: String?,
+    val trackNumber: Int? = null,
+    val discNumber: Int? = null,
     val artworkBytes: ByteArray? = null,
 ) {
     override fun equals(other: Any?): Boolean {
@@ -32,6 +37,8 @@ data class TrackMetadata(
             album == other.album &&
             durationMs == other.durationMs &&
             albumId == other.albumId &&
+            trackNumber == other.trackNumber &&
+            discNumber == other.discNumber &&
             artworkBytes.contentEquals(other.artworkBytes)
     }
 
@@ -41,6 +48,8 @@ data class TrackMetadata(
         result = 31 * result + album.hashCode()
         result = 31 * result + durationMs.hashCode()
         result = 31 * result + albumId.hashCode()
+        result = 31 * result + (trackNumber ?: 0)
+        result = 31 * result + (discNumber ?: 0)
         result = 31 * result + (artworkBytes?.contentHashCode() ?: 0)
         return result
     }

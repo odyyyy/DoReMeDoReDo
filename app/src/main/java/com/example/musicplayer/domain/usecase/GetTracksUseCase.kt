@@ -60,7 +60,13 @@ fun filterAndSortTracks(
 private fun TrackSort.comparator(shuffleSeed: Long): Comparator<Track> = when (this) {
     TrackSort.TITLE -> compareBy(String.CASE_INSENSITIVE_ORDER) { it.title }
     TrackSort.ARTIST -> compareBy(String.CASE_INSENSITIVE_ORDER) { it.artist }
-    TrackSort.ALBUM -> compareBy(String.CASE_INSENSITIVE_ORDER) { it.album }
+    // Grouping by album also follows the album's own running order, so the
+    // Tracks view is not alphabetical inside each album.
+    TrackSort.ALBUM -> compareBy<Track, String>(String.CASE_INSENSITIVE_ORDER) { it.album }
+        .thenBy { it.discNumber ?: Int.MAX_VALUE }
+        .thenBy { it.trackNumber ?: Int.MAX_VALUE }
+        .thenBy(String.CASE_INSENSITIVE_ORDER) { it.title }
+        .thenBy { it.uri }
     TrackSort.DURATION -> compareBy { it.durationMs }
     TrackSort.DATE_ADDED -> compareBy { it.dateAdded }
     TrackSort.SHUFFLE -> compareBy { shuffleRank(it.uri, shuffleSeed) }

@@ -1,5 +1,6 @@
 package com.example.musicplayer.data.scanner
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -50,6 +51,21 @@ class MusicScannerTest {
                 scanner.isAudioCandidateByNameAndMime(name, mime),
             )
         }
+    }
+
+    @Test
+    fun decodeCueText_readsUtf8WithBom() {
+        val bom = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
+        val text = "FILE \"01 - Song.flac\" WAVE"
+
+        assertEquals(text, scanner.decodeCueText(bom + text.toByteArray(Charsets.UTF_8)))
+    }
+
+    @Test
+    fun decodeCueText_fallsBackToLatin1ForLegacySheets() {
+        val text = "FILE \"café.flac\" WAVE"
+
+        assertEquals(text, scanner.decodeCueText(text.toByteArray(Charsets.ISO_8859_1)))
     }
 
     private class DummyContext : android.content.ContextWrapper(null)

@@ -96,6 +96,10 @@ class MetadataExtractor @Inject constructor(
             ?: retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST)
         val rawAlbum = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
         val rawDuration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+        val rawTrackNumber =
+            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER)
+        val rawDiscNumber =
+            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DISC_NUMBER)
 
         return buildMetadata(
             fileName = file.name,
@@ -103,6 +107,10 @@ class MetadataExtractor @Inject constructor(
             rawArtist = rawArtist,
             rawAlbum = rawAlbum,
             rawDuration = rawDuration,
+            rawTrackNumber = rawTrackNumber,
+            rawDiscNumber = rawDiscNumber,
+            cueTrackNumber = file.cueTrackNumber,
+            cueDiscNumber = file.cueDiscNumber,
             artworkBytes = readArtwork(retriever = retriever, file = file),
         )
     }
@@ -190,14 +198,30 @@ class MetadataExtractor @Inject constructor(
             rawAlbum: String?,
             rawDuration: String?,
             artworkBytes: ByteArray? = null,
-        ): TrackMetadata = TrackMetadata(
-            title = resolveTitle(rawTitle, fileName),
-            artist = resolveArtist(rawArtist),
-            album = resolveAlbum(rawAlbum),
-            durationMs = parseDurationMs(rawDuration),
-            albumId = buildAlbumId(rawAlbum = rawAlbum, rawArtist = rawArtist),
-            artworkBytes = artworkBytes,
-        )
+            rawTrackNumber: String? = null,
+            rawDiscNumber: String? = null,
+            cueTrackNumber: Int? = null,
+            cueDiscNumber: Int? = null,
+        ): TrackMetadata {
+            val fileNameOrder = parseFileNameOrder(fileName)
+            return TrackMetadata(
+                title = resolveTitle(rawTitle, fileName),
+                artist = resolveArtist(rawArtist),
+                album = resolveAlbum(rawAlbum),
+                durationMs = parseDurationMs(rawDuration),
+                albumId = buildAlbumId(rawAlbum = rawAlbum, rawArtist = rawArtist),
+                // Precedence: the file's own tag is most specific, then the
+                // album's cue sheet, then the numbering embedded in the file
+                // name. A lower-priority source never overrides a higher one.
+                trackNumber = parseIndexNumber(rawTrackNumber)
+                    ?: cueTrackNumber
+                    ?: fileNameOrder.trackNumber,
+                discNumber = parseIndexNumber(rawDiscNumber)
+                    ?: cueDiscNumber
+                    ?: fileNameOrder.discNumber,
+                artworkBytes = artworkBytes,
+            )
+        }
 
         /**
          * Resolves a display title, preferring the tag and falling back to the
@@ -221,6 +245,53 @@ class MetadataExtractor @Inject constructor(
          */
         internal fun parseDurationMs(rawDuration: String?): Long =
             rawDuration?.trim()?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
+
+        /**
+         * Parses a disc or track number tag.
+         *
+         * Tag values commonly look like `"3"`, `"03"`, or `"3/12"`; only the
+         * leading number is meaningful. Zero, negative, and non-numeric values
+         * resolve to `null` so they cannot create a bogus position.
+         */
+        internal fun parseIndexNumber(raw: String?): Int? {
+            val text = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+            val leadingDigits = text.takeWhile { it.isDigit() }
+            return leadingDigits.toIntOrNull()?.takeIf { it > 0 }
+        }
+
+        /**
+         * Best-effort track position from a file name.
+         *
+         * Handles the common rip conventions `01 - Title`, `01. Title`,
+         * `01_Title`, `01 Title`, `[01] Title`, and the multi-disc form
+         * `1-02 Title`. Only used when no tag or cue sheet supplies a number;
+         * a leading year or any other 4+ digit number is never treated as a
+         * track number.
+         */
+        internal fun parseFileNameOrder(fileName: String): FileNameOrder {
+            val baseName = fileName.substringBeforeLast('.', fileName)
+
+            DISC_TRACK_FILE_NAME.find(baseName)?.let { match ->
+                val disc = match.groupValues[1].toIntOrNull()?.takeIf { it > 0 }
+                val track = match.groupValues[2].toIntOrNull()?.takeIf { it > 0 }
+                if (disc != null && track != null) {
+                    return FileNameOrder(trackNumber = track, discNumber = disc)
+                }
+            }
+
+            val track = TRACK_FILE_NAME.find(baseName)
+                ?.groupValues?.getOrNull(1)
+                ?.toIntOrNull()
+                ?.takeIf { it > 0 }
+
+            return FileNameOrder(trackNumber = track, discNumber = null)
+        }
+
+        private val DISC_TRACK_FILE_NAME =
+            Regex("""^\s*(\d{1,2})\s*[-._]\s*(\d{1,2})(?:\s*[-._)]\s*|\s+|$)""")
+
+        private val TRACK_FILE_NAME =
+            Regex("""^\s*\[?(\d{1,3})\]?\s*(?:[-._)]\s*|\s+)""")
 
         /**
          * Builds a stable album-grouping key from normalized album and artist
@@ -309,3 +380,15 @@ class MetadataExtractor @Inject constructor(
         }
     }
 }
+
+/**
+ * Ordering information that can be read from an audio file name.
+ *
+ * @property trackNumber Position within the disc, or `null` when the name does
+ *   not start with a track number.
+ * @property discNumber Disc number parsed from a `disc-track` name, or `null`.
+ */
+internal data class FileNameOrder(
+    val trackNumber: Int?,
+    val discNumber: Int?,
+)

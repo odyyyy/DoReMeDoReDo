@@ -169,12 +169,14 @@ class ScanCoordinator @Inject constructor(
 
         // Files whose stamp changed (or that were never indexed) are the only
         // ones worth the cost of another metadata read, plus rows indexed before
-        // artwork extraction ran: those still have artworkScanned == false and
-        // get their cover backfilled by this scan.
+        // artwork or track-position extraction ran: those still have
+        // artworkScanned == false or orderScanned == false and get their cover
+        // and album position backfilled by this scan.
         val needsExtraction = discovered.filter { file ->
             val existing = existingByUri[file.uri.toString()]
             existing == null ||
                 !existing.artworkScanned ||
+                !existing.orderScanned ||
                 !existing.isSameFile(size = file.size, modifiedAt = file.lastModified)
         }
 
@@ -253,9 +255,12 @@ class ScanCoordinator @Inject constructor(
         artist = TrackMetadata.UNKNOWN_ARTIST,
         album = TrackMetadata.UNKNOWN_ALBUM,
         durationMs = 0L,
+        trackNumber = file.cueTrackNumber,
+        discNumber = file.cueDiscNumber,
         albumId = null,
         artworkUri = null,
         artworkScanned = true,
+        orderScanned = true,
         folderUri = file.parentFolderUri.toString(),
         fileSize = file.size,
         lastModified = file.lastModified,

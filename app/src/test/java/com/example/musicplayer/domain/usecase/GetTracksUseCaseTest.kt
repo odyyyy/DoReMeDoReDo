@@ -19,12 +19,16 @@ class GetTracksUseCaseTest {
         album: String = "Unknown Album",
         durationMs: Long = 0L,
         dateAdded: Long = 0L,
+        trackNumber: Int? = null,
+        discNumber: Int? = null,
     ) = Track(
         uri = uri,
         title = title,
         artist = artist,
         album = album,
         durationMs = durationMs,
+        trackNumber = trackNumber,
+        discNumber = discNumber,
         albumId = null,
         artworkUri = null,
         dateAdded = dateAdded,
@@ -108,6 +112,23 @@ class GetTracksUseCaseTest {
         )
         val result = filterAndSortTracks(tracks, "", TrackSort.ALBUM)
         assertEquals(listOf("uri://2", "uri://1"), result.map { it.uri })
+    }
+
+    @Test
+    fun `sort by album follows the album running order inside each album`() {
+        val tracks = listOf(
+            track("uri://3", title = "Third", album = "Album A", trackNumber = 3),
+            track("uri://1", title = "First", album = "Album A", trackNumber = 1),
+            track("uri://2", title = "Second", album = "Album A", trackNumber = 2),
+            track("uri://b", title = "Other", album = "Album B", trackNumber = 1),
+        )
+
+        val result = filterAndSortTracks(tracks, "", TrackSort.ALBUM)
+
+        assertEquals(
+            listOf("uri://1", "uri://2", "uri://3", "uri://b"),
+            result.map { it.uri },
+        )
     }
 
     @Test

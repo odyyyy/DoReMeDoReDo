@@ -8,6 +8,10 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
+import java.nio.charset.CharacterCodingException
+import java.nio.charset.CodingErrorAction
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -39,6 +43,15 @@ class MusicScanner @Inject constructor(
         private val PREFERRED_ARTWORK_NAMES = listOf(
             "cover", "folder", "front", "album", "albumart", "artwork", "thumb",
         )
+
+        /** Cue sheet extension. */
+        private const val CUE_EXTENSION = "cue"
+
+        /**
+         * Upper bound for a cue sheet read. Sheets are a few kilobytes; the
+         * limit only protects the scan from a provider returning a huge file.
+         */
+        private const val MAX_CUE_BYTES = 512 * 1024
 
         /**
          * Chooses the cover image of one folder from its file names.
@@ -121,21 +134,29 @@ class MusicScanner @Inject constructor(
             // One lookup per folder: all audio files in it share the same cover.
             val folderArtworkUri = selectFolderArtwork(files)
 
+            // A cue sheet next to the audio files can define the album order
+            // even when the files themselves carry no track number.
+            val cueHints = readCueHints(files, warnings)
+
             for (file in files) {
                 totalFilesScanned++
                 try {
                     if (file.isDirectory) {
                         traverse(file, currentDepth + 1)
                     } else if (file.isFile && isAudioCandidate(file)) {
+                        val fileName = file.name ?: "Unknown Track"
+                        val cueHint = cueHints[CueSheetParser.normalizeFileName(fileName)]
                         discoveredFiles.add(
                             DiscoveredAudioFile(
                                 uri = file.uri,
-                                name = file.name ?: "Unknown Track",
+                                name = fileName,
                                 mimeType = file.type,
                                 size = file.length(),
                                 lastModified = file.lastModified(),
                                 parentFolderUri = dir.uri,
                                 artworkFileUri = folderArtworkUri,
+                                cueTrackNumber = cueHint?.trackNumber,
+                                cueDiscNumber = cueHint?.discNumber,
                             )
                         )
                     }
@@ -163,6 +184,102 @@ class MusicScanner @Inject constructor(
             durationMs = durationMs,
             warnings = warnings,
         )
+    }
+
+    /**
+     * Reads the cue sheets of one folder and maps each audio file name to the
+     * position declared for it.
+     *
+     * Only `FILE` blocks that contain exactly one `TRACK` are used. A block
+     * with several tracks describes a single audio file that the app plays as
+     * one item, so applying its first track number would be wrong.
+     */
+    private fun readCueHints(
+        files: Array<DocumentFile>,
+        warnings: MutableList<String>,
+    ): Map<String, CueTrackHint> {
+        val hints = mutableMapOf<String, CueTrackHint>()
+
+        for (file in files) {
+            val name = try {
+                file.name
+            } catch (_: Exception) {
+                null
+            } ?: continue
+
+            if (name.substringAfterLast('.', "").lowercase(Locale.ROOT) != CUE_EXTENSION) continue
+
+            try {
+                if (file.isDirectory) continue
+                val text = readCueText(file.uri) ?: continue
+                val sheet = CueSheetParser.parse(text)
+
+                for (cueFile in sheet.files) {
+                    val track = cueFile.tracks.singleOrNull() ?: continue
+                    val key = CueSheetParser.normalizeFileName(cueFile.fileName)
+                    if (key.isEmpty() || key in hints) continue
+                    hints[key] = CueTrackHint(
+                        trackNumber = track.number,
+                        discNumber = sheet.discNumber,
+                    )
+                }
+            } catch (e: Exception) {
+                warnings.add(
+                    "Failed to read cue sheet '$name': ${e.localizedMessage ?: e.message}",
+                )
+            }
+        }
+
+        return hints
+    }
+
+    /** Reads a cue sheet's text, tolerating missing or unreadable documents. */
+    private fun readCueText(uri: Uri): String? {
+        val bytes = context.contentResolver.openInputStream(uri)?.use { stream ->
+            val output = ByteArrayOutputStream()
+            val chunk = ByteArray(8 * 1024)
+            var total = 0
+            while (total < MAX_CUE_BYTES) {
+                val read = stream.read(chunk)
+                if (read < 0) break
+                output.write(chunk, 0, read)
+                total += read
+            }
+            output.toByteArray()
+        } ?: return null
+
+        return decodeCueText(bytes)
+    }
+
+    /**
+     * Decodes cue text. UTF-8 (with or without BOM) is the common case; legacy
+     * single-byte sheets fall back to Latin-1, which keeps the ASCII keywords,
+     * numbers, and file names the parser needs intact.
+     */
+    internal fun decodeCueText(bytes: ByteArray): String {
+        if (bytes.size >= 3 &&
+            bytes[0] == 0xEF.toByte() &&
+            bytes[1] == 0xBB.toByte() &&
+            bytes[2] == 0xBF.toByte()
+        ) {
+            return String(bytes, 3, bytes.size - 3, Charsets.UTF_8)
+        }
+        if (bytes.size >= 2 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xFE.toByte()) {
+            return String(bytes, 2, bytes.size - 2, Charsets.UTF_16LE)
+        }
+        if (bytes.size >= 2 && bytes[0] == 0xFE.toByte() && bytes[1] == 0xFF.toByte()) {
+            return String(bytes, 2, bytes.size - 2, Charsets.UTF_16BE)
+        }
+
+        return try {
+            Charsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                .decode(ByteBuffer.wrap(bytes))
+                .toString()
+        } catch (_: CharacterCodingException) {
+            String(bytes, Charsets.ISO_8859_1)
+        }
     }
 
     /**
@@ -213,4 +330,10 @@ class MusicScanner @Inject constructor(
 
         return isAudioMime || isSupportedExt
     }
+
+    /** Ordering hint declared for one audio file by a folder cue sheet. */
+    private data class CueTrackHint(
+        val trackNumber: Int,
+        val discNumber: Int?,
+    )
 }

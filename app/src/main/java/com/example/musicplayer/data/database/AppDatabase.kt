@@ -15,12 +15,20 @@ import androidx.room.RoomDatabase
  * the next scan re-reads their artwork and backfills covers that were indexed
  * before the artwork pipeline existed. The added column only carries a boolean,
  * which is exactly the case Room auto-migrations handle safely.
+ *
+ * Version 3 adds `TrackEntity.trackNumber` and `TrackEntity.discNumber` (both
+ * nullable) plus `orderScanned`, which defaults to `0`. Existing rows therefore
+ * stay readable and are re-read once by the next scan to backfill their album
+ * position; nothing else about the stored data changes.
  */
 @Database(
     entities = [TrackEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = true,
-    autoMigrations = [AutoMigration(from = 1, to = 2)],
+    autoMigrations = [
+        AutoMigration(from = 1, to = 2),
+        AutoMigration(from = 2, to = 3),
+    ],
 )
 abstract class AppDatabase : RoomDatabase() {
 
