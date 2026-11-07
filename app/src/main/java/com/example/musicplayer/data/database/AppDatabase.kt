@@ -20,14 +20,21 @@ import androidx.room.RoomDatabase
  * nullable) plus `orderScanned`, which defaults to `0`. Existing rows therefore
  * stay readable and are re-read once by the next scan to backfill their album
  * position; nothing else about the stored data changes.
+ *
+ * Version 4 adds `TrackEntity.fullArtworkUri` (nullable) and
+ * `TrackEntity.fullArtworkScanned` (defaults to `0`). The next scan re-reads
+ * rows whose full-resolution cover was never extracted, so Now Playing can show
+ * a sharp cover while lists keep using the small thumbnail. Existing rows stay
+ * readable and keep their thumbnail until that backfill runs.
  */
 @Database(
     entities = [TrackEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
+        AutoMigration(from = 3, to = 4),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {

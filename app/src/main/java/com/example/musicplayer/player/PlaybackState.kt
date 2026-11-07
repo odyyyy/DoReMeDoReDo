@@ -58,4 +58,6 @@ data class PlaybackTrack(
     val durationMs: Long,
     /** Album grouping key carried from the library, or `null` when unknown. */
     val albumId: String? = null,
+    /** Full-resolution cover used by Now Playing, or `null` when unavailable. */
+    val fullArtworkUri: String? = null,
 )

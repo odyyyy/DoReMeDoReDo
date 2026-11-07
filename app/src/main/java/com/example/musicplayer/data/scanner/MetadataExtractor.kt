@@ -101,6 +101,7 @@ class MetadataExtractor @Inject constructor(
         val rawDiscNumber =
             retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DISC_NUMBER)
 
+        val artwork = readArtwork(retriever = retriever, file = file)
         return buildMetadata(
             fileName = file.name,
             rawTitle = rawTitle,
@@ -111,19 +112,21 @@ class MetadataExtractor @Inject constructor(
             rawDiscNumber = rawDiscNumber,
             cueTrackNumber = file.cueTrackNumber,
             cueDiscNumber = file.cueDiscNumber,
-            artworkBytes = readArtwork(retriever = retriever, file = file),
+            artworkBytes = artwork.thumbnail,
+            fullArtworkBytes = artwork.full,
         )
     }
 
     /**
-     * Reads and bounds artwork: the embedded picture first, then a cover image
-     * found next to the audio file (`cover.jpg`, `folder.jpg`, …). Missing,
-     * unreadable, or corrupt artwork is a normal state and resolves to `null`.
+     * Reads both artwork variants: the embedded picture first, then a cover
+     * image found next to the audio file (`cover.jpg`, `folder.jpg`, …).
+     * Missing, unreadable, or corrupt artwork is a normal state and resolves to
+     * empty variants.
      */
     private fun readArtwork(
         retriever: MediaMetadataRetriever,
         file: DiscoveredAudioFile,
-    ): ByteArray? {
+    ): ArtworkVariants {
         val embedded = try {
             retriever.embeddedPicture
         } catch (_: Exception) {
@@ -131,59 +134,108 @@ class MetadataExtractor @Inject constructor(
         }
 
         if (embedded != null) {
-            return try {
-                downscaleArtwork(embedded)
+            val variants = try {
+                extractArtworkVariants(embedded)
             } catch (_: Exception) {
                 null
             }
+            // A corrupt embedded picture falls through to a folder cover instead
+            // of hiding artwork the folder may still provide.
+            if (variants?.thumbnail != null) return variants
         }
 
-        return readArtworkFile(file.artworkFileUri)
+        return readArtworkFileVariants(file.artworkFileUri)
+            ?: ArtworkVariants(thumbnail = null, full = null)
     }
 
     /**
-     * Reads a folder cover image through the document provider, decoding it at
-     * the bounded artwork size instead of loading the full-resolution bitmap.
+     * Reads a folder cover image through the document provider, producing the
+     * bounded thumbnail and, when the source is larger, the full-resolution
+     * variant used by Now Playing.
      */
-    private fun readArtworkFile(uri: Uri?): ByteArray? {
+    private fun readArtworkFileVariants(uri: Uri?): ArtworkVariants? {
         if (uri == null) return null
         return try {
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            context.contentResolver.openInputStream(uri)?.use { stream ->
-                BitmapFactory.decodeStream(stream, null, bounds)
-            } ?: return null
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+            val bounds = readImageBounds(uri) ?: return null
 
-            val options = BitmapFactory.Options().apply {
-                inSampleSize = calculateInSampleSize(
-                    width = bounds.outWidth,
-                    height = bounds.outHeight,
-                    maxDimension = MAX_ARTWORK_DIMENSION_PX,
-                )
-            }
-            val bitmap = context.contentResolver.openInputStream(uri)?.use { stream ->
-                BitmapFactory.decodeStream(stream, null, options)
-            } ?: return null
+            val thumbnail = decodeAndEncodeArtwork(
+                sourceWidth = bounds.width,
+                sourceHeight = bounds.height,
+                maxDimension = MAX_ARTWORK_DIMENSION_PX,
+                quality = ARTWORK_JPEG_QUALITY,
+                maxBytes = MAX_ARTWORK_BYTES,
+                decode = { options -> decodeImageFile(uri, options) },
+            ) ?: return null
 
-            try {
-                encodeArtwork(bitmap)
-            } finally {
-                bitmap.recycle()
+            if (bounds.width <= MAX_ARTWORK_DIMENSION_PX &&
+                bounds.height <= MAX_ARTWORK_DIMENSION_PX
+            ) {
+                // Already thumbnail-sized: a larger decode would duplicate the
+                // same pixels, so both columns can share one stored file.
+                return ArtworkVariants(thumbnail = thumbnail, full = thumbnail)
             }
+
+            val full = decodeAndEncodeArtwork(
+                sourceWidth = bounds.width,
+                sourceHeight = bounds.height,
+                maxDimension = MAX_FULL_ARTWORK_DIMENSION_PX,
+                quality = FULL_ARTWORK_JPEG_QUALITY,
+                maxBytes = MAX_FULL_ARTWORK_BYTES,
+                decode = { options -> decodeImageFile(uri, options) },
+            ) ?: thumbnail
+
+            ArtworkVariants(thumbnail = thumbnail, full = full)
         } catch (_: Exception) {
             null
         }
     }
 
+    /** Reads the pixel dimensions of an image document without decoding it. */
+    private fun readImageBounds(uri: Uri): ImageBounds? {
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, options)
+        }
+        return if (options.outWidth > 0 && options.outHeight > 0) {
+            ImageBounds(width = options.outWidth, height = options.outHeight)
+        } else {
+            null
+        }
+    }
+
+    private fun decodeImageFile(uri: Uri, options: BitmapFactory.Options): Bitmap? =
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, options)
+        }
+
     companion object {
-        /** Maximum width/height of retained artwork, in pixels. */
+        /** Maximum width/height of the thumbnail variant, in pixels. */
         const val MAX_ARTWORK_DIMENSION_PX = 512
 
-        /** JPEG quality used when re-encoding artwork. */
+        /** JPEG quality used when re-encoding the thumbnail variant. */
         const val ARTWORK_JPEG_QUALITY = 85
 
-        /** Upper bound for retained artwork bytes; larger results are dropped. */
+        /** Upper bound for the thumbnail variant bytes; larger results are dropped. */
         const val MAX_ARTWORK_BYTES = 512 * 1024
+
+        /**
+         * Maximum width/height of the full-resolution variant, in pixels.
+         *
+         * Now Playing draws the cover at roughly screen width, so this bound is
+         * larger than any phone display while still protecting the library from
+         * multi-megapixel source images. A cover that is already smaller keeps
+         * its own resolution.
+         */
+        const val MAX_FULL_ARTWORK_DIMENSION_PX = 2048
+
+        /** JPEG quality used for the full-resolution variant. */
+        const val FULL_ARTWORK_JPEG_QUALITY = 92
+
+        /**
+         * Upper bound for the full-resolution variant bytes; larger results are
+         * dropped and the thumbnail is used instead.
+         */
+        const val MAX_FULL_ARTWORK_BYTES = 4 * 1024 * 1024
 
         private val WHITESPACE = Regex("\\s+")
 
@@ -198,6 +250,7 @@ class MetadataExtractor @Inject constructor(
             rawAlbum: String?,
             rawDuration: String?,
             artworkBytes: ByteArray? = null,
+            fullArtworkBytes: ByteArray? = null,
             rawTrackNumber: String? = null,
             rawDiscNumber: String? = null,
             cueTrackNumber: Int? = null,
@@ -220,6 +273,7 @@ class MetadataExtractor @Inject constructor(
                     ?: cueDiscNumber
                     ?: fileNameOrder.discNumber,
                 artworkBytes = artworkBytes,
+                fullArtworkBytes = fullArtworkBytes,
             )
         }
 
@@ -337,31 +391,99 @@ class MetadataExtractor @Inject constructor(
             value.trim().lowercase(Locale.ROOT).replace(WHITESPACE, " ")
 
         /**
-         * Decodes embedded artwork with a bounded sample size and re-encodes it
-         * as a compact JPEG. Returns `null` when the artwork cannot be decoded
-         * or the result still exceeds [MAX_ARTWORK_BYTES].
+         * Decodes embedded artwork into the two stored variants: a bounded
+         * thumbnail for lists and notifications, and a larger cover for Now
+         * Playing.
+         *
+         * A source that already fits the thumbnail bound produces one image and
+         * both variants reference the same bytes, so no duplicate file is
+         * stored. Returns empty variants when the artwork cannot be decoded.
+         */
+        internal fun extractArtworkVariants(
+            rawArtwork: ByteArray,
+            maxThumbnailDimension: Int = MAX_ARTWORK_DIMENSION_PX,
+            maxFullDimension: Int = MAX_FULL_ARTWORK_DIMENSION_PX,
+            maxThumbnailBytes: Int = MAX_ARTWORK_BYTES,
+            maxFullBytes: Int = MAX_FULL_ARTWORK_BYTES,
+        ): ArtworkVariants {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(rawArtwork, 0, rawArtwork.size, bounds)
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+                return ArtworkVariants(thumbnail = null, full = null)
+            }
+
+            val thumbnail = decodeAndEncodeArtwork(
+                sourceWidth = bounds.outWidth,
+                sourceHeight = bounds.outHeight,
+                maxDimension = maxThumbnailDimension,
+                quality = ARTWORK_JPEG_QUALITY,
+                maxBytes = maxThumbnailBytes,
+                decode = { options ->
+                    BitmapFactory.decodeByteArray(rawArtwork, 0, rawArtwork.size, options)
+                },
+            ) ?: return ArtworkVariants(thumbnail = null, full = null)
+
+            if (bounds.outWidth <= maxThumbnailDimension &&
+                bounds.outHeight <= maxThumbnailDimension
+            ) {
+                return ArtworkVariants(thumbnail = thumbnail, full = thumbnail)
+            }
+
+            val full = decodeAndEncodeArtwork(
+                sourceWidth = bounds.outWidth,
+                sourceHeight = bounds.outHeight,
+                maxDimension = maxFullDimension,
+                quality = FULL_ARTWORK_JPEG_QUALITY,
+                maxBytes = maxFullBytes,
+                decode = { options ->
+                    BitmapFactory.decodeByteArray(rawArtwork, 0, rawArtwork.size, options)
+                },
+            ) ?: thumbnail
+
+            return ArtworkVariants(thumbnail = thumbnail, full = full)
+        }
+
+        /**
+         * Decodes embedded artwork at the thumbnail size. Kept as the single
+         * bounded-image entry point used by tests and older callers.
          */
         internal fun downscaleArtwork(
             rawArtwork: ByteArray,
             maxDimension: Int = MAX_ARTWORK_DIMENSION_PX,
             maxBytes: Int = MAX_ARTWORK_BYTES,
-        ): ByteArray? {
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeByteArray(rawArtwork, 0, rawArtwork.size, bounds)
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        ): ByteArray? = extractArtworkVariants(
+            rawArtwork = rawArtwork,
+            maxThumbnailDimension = maxDimension,
+            maxFullDimension = maxDimension,
+            maxThumbnailBytes = maxBytes,
+            maxFullBytes = maxBytes,
+        ).thumbnail
 
+        /**
+         * Decodes one bounded variant and compresses it to JPEG.
+         *
+         * The decode lambda is supplied by the caller so embedded artwork and
+         * folder cover files share the same sampling and encoding rules.
+         */
+        private fun decodeAndEncodeArtwork(
+            sourceWidth: Int,
+            sourceHeight: Int,
+            maxDimension: Int,
+            quality: Int,
+            maxBytes: Int,
+            decode: (BitmapFactory.Options) -> Bitmap?,
+        ): ByteArray? {
             val options = BitmapFactory.Options().apply {
                 inSampleSize = calculateInSampleSize(
-                    width = bounds.outWidth,
-                    height = bounds.outHeight,
+                    width = sourceWidth,
+                    height = sourceHeight,
                     maxDimension = maxDimension,
                 )
             }
-            val bitmap = BitmapFactory.decodeByteArray(rawArtwork, 0, rawArtwork.size, options)
-                ?: return null
+            val bitmap = decode(options) ?: return null
 
             return try {
-                encodeArtwork(bitmap = bitmap, maxBytes = maxBytes)
+                encodeArtwork(bitmap = bitmap, quality = quality, maxBytes = maxBytes)
             } finally {
                 bitmap.recycle()
             }
@@ -373,13 +495,31 @@ class MetadataExtractor @Inject constructor(
          */
         internal fun encodeArtwork(
             bitmap: Bitmap,
+            quality: Int = ARTWORK_JPEG_QUALITY,
             maxBytes: Int = MAX_ARTWORK_BYTES,
         ): ByteArray? = ByteArrayOutputStream().use { output ->
-            bitmap.compress(Bitmap.CompressFormat.JPEG, ARTWORK_JPEG_QUALITY, output)
+            bitmap.compress(Bitmap.CompressFormat.JPEG, quality, output)
             output.toByteArray().takeIf { it.isNotEmpty() && it.size <= maxBytes }
         }
     }
 }
+
+/**
+ * The two artwork images stored per cover: the small [thumbnail] used by lists,
+ * notifications and the mini player, and the larger [full] image used by Now
+ * Playing. [full] may reference the same bytes as [thumbnail] when the source
+ * image is already small.
+ */
+internal data class ArtworkVariants(
+    val thumbnail: ByteArray?,
+    val full: ByteArray?,
+)
+
+/** Pixel dimensions of an image document. */
+private data class ImageBounds(
+    val width: Int,
+    val height: Int,
+)
 
 /**
  * Ordering information that can be read from an audio file name.

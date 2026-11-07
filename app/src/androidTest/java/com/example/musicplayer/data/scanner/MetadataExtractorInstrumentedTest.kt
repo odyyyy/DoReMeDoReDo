@@ -78,6 +78,44 @@ class MetadataExtractorInstrumentedTest {
         assertTrue(bitmap!!.width <= MetadataExtractor.MAX_ARTWORK_DIMENSION_PX)
         assertTrue(bitmap.height <= MetadataExtractor.MAX_ARTWORK_DIMENSION_PX)
         bitmap.recycle()
+
+        // A 64 px source already fits the thumbnail bound, so the full variant
+        // shares the same bytes instead of being re-encoded.
+        val fullArtwork = metadata.fullArtworkBytes
+        assertNotNull("Expected a full-resolution artwork variant", fullArtwork)
+        assertTrue(fullArtwork!!.contentEquals(artwork))
+    }
+
+    @Test
+    fun extract_keepsALargerFullArtworkVariantThanTheThumbnail() = runBlocking {
+        val file = createTaggedMp3(
+            name = "large-artwork.mp3",
+            artwork = createJpeg(width = 1_024, height = 1_024),
+        )
+
+        val result = extractor.extract(file.toDiscoveredAudioFile(mimeType = "audio/mpeg"))
+
+        assertTrue("Expected success but was $result", result is MetadataResult.Success)
+        val metadata = (result as MetadataResult.Success).metadata
+
+        val thumbnail = requireNotNull(metadata.artworkBytes)
+        val full = requireNotNull(metadata.fullArtworkBytes)
+
+        val thumbnailBitmap = BitmapFactory.decodeByteArray(thumbnail, 0, thumbnail.size)
+        val fullBitmap = BitmapFactory.decodeByteArray(full, 0, full.size)
+        try {
+            assertNotNull(thumbnailBitmap)
+            assertNotNull(fullBitmap)
+            assertTrue(thumbnailBitmap!!.width <= MetadataExtractor.MAX_ARTWORK_DIMENSION_PX)
+            assertTrue(fullBitmap!!.width <= MetadataExtractor.MAX_FULL_ARTWORK_DIMENSION_PX)
+            assertTrue(
+                "the full variant must retain more detail than the thumbnail",
+                fullBitmap.width > thumbnailBitmap.width,
+            )
+        } finally {
+            thumbnailBitmap?.recycle()
+            fullBitmap?.recycle()
+        }
     }
 
     @Test

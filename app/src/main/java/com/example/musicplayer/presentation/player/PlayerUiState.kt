@@ -18,7 +18,10 @@ import com.example.musicplayer.player.PlaybackState
  * @property title Display title of the loaded item.
  * @property artist Artist of the loaded item, or `null` when unknown.
  * @property album Album of the loaded item, or `null` when unknown.
- * @property artworkUri Optional artwork reference, or `null` when unavailable.
+ * @property artworkUri Optional artwork thumbnail reference, or `null` when
+ *   unavailable.
+ * @property fullArtworkUri Optional full-resolution cover used by Now Playing,
+ *   or `null` when unavailable.
  * @property isPlaying True while the player is actively playing.
  * @property isBuffering True while the player is buffering the current item.
  * @property hasNext True when a next playlist item exists.
@@ -44,6 +47,8 @@ data class PlayerUiState(
     val errorMessage: String?,
     /** Album grouping key carried by the player, or `null` when unknown. */
     val albumId: String? = null,
+    /** Full-resolution cover used by Now Playing, or `null` when unavailable. */
+    val fullArtworkUri: String? = null,
 ) {
     /**
      * Key of the album this track belongs to, resolved the same way the album
@@ -79,6 +84,7 @@ fun PlaybackState.toPlayerUiState(): PlayerUiState? {
         hasEnded = hasEnded,
         errorMessage = playbackError,
         albumId = track.albumId,
+        fullArtworkUri = track.fullArtworkUri?.takeIf { it.isNotBlank() },
     )
 }
 

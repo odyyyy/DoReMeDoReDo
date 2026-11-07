@@ -23,9 +23,10 @@ import javax.inject.Singleton
  *    album covers share one file and makes the URI change whenever the image
  *    content changes. That keeps the indexed `artworkUri` valid for the file
  *    version it was read from and gives the UI an unambiguous cache key.
- *  - Only the bounded JPEG produced by `MetadataExtractor` is stored (max 512 px
- *    on the long edge), and Coil decodes that master at the exact size each
- *    surface draws, so no separate on-disk thumbnail variant is kept.
+ *  - Only the bounded JPEGs produced by `MetadataExtractor` are stored: a small
+ *    thumbnail for lists and notifications and a larger cover for Now Playing.
+ *    Identical bytes (for example a source image that is already small) resolve
+ *    to one file, so the two variants never duplicate storage.
  *  - Writes go through a temporary file and a rename, so a crash or a full disk
  *    can never leave a half-written image behind.
  */

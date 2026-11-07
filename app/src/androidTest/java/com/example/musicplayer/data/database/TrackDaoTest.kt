@@ -93,6 +93,35 @@ class TrackDaoTest {
     }
 
     @Test
+    fun getArtworkUris_includesBothThumbnailAndFullVariants() = runBlocking {
+        dao.upsertAll(
+            listOf(
+                sampleTrack(uri = "content://music/a").copy(
+                    artworkUri = "file:///artwork/a-thumb.jpg",
+                    fullArtworkUri = "file:///artwork/a-full.jpg",
+                ),
+                sampleTrack(uri = "content://music/b").copy(
+                    artworkUri = "file:///artwork/b-thumb.jpg",
+                    fullArtworkUri = "file:///artwork/b-thumb.jpg",
+                ),
+                sampleTrack(uri = "content://music/c").copy(
+                    artworkUri = null,
+                    fullArtworkUri = null,
+                ),
+            ),
+        )
+
+        assertEquals(
+            setOf(
+                "file:///artwork/a-thumb.jpg",
+                "file:///artwork/a-full.jpg",
+                "file:///artwork/b-thumb.jpg",
+            ),
+            dao.getArtworkUris().toSet(),
+        )
+    }
+
+    @Test
     fun fileBackedDatabase_retainsTracksAfterReopen() = runBlocking {
         val databaseName = "track-dao-reopen-test.db"
         context.deleteDatabase(databaseName)
@@ -142,6 +171,7 @@ class TrackDaoTest {
             metadata = metadata,
             dateAdded = 1_700_000_100_000L,
             artworkUri = "file:///artwork/track.mp3.jpg",
+            fullArtworkUri = "file:///artwork/track.mp3-full.jpg",
         )
 
         assertEquals("content://music/folder/track.mp3", entity.uri)
@@ -151,6 +181,9 @@ class TrackDaoTest {
         assertEquals(210_000L, entity.durationMs)
         assertEquals("album-key", entity.albumId)
         assertEquals("file:///artwork/track.mp3.jpg", entity.artworkUri)
+        assertEquals("file:///artwork/track.mp3-full.jpg", entity.fullArtworkUri)
+        assertTrue(entity.artworkScanned)
+        assertTrue(entity.fullArtworkScanned)
         assertEquals(FOLDER_A, entity.folderUri)
         assertEquals(4_096L, entity.fileSize)
         assertEquals(1_700_000_000_000L, entity.lastModified)

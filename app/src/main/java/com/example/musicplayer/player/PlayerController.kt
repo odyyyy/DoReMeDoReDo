@@ -522,6 +522,7 @@ class PlayerController @Inject constructor(
             artworkUri = mediaMetadata.artworkUri?.toString(),
             durationMs = durationOverrideMs ?: mediaMetadata.durationMs ?: 0L,
             albumId = mediaMetadata.extras?.getString(EXTRA_ALBUM_ID),
+            fullArtworkUri = mediaMetadata.extras?.getString(EXTRA_FULL_ARTWORK_URI),
         )
 
     private fun Long.validOrZero(): Long =

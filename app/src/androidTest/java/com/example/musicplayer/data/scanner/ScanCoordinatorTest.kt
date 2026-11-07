@@ -308,13 +308,54 @@ class ScanCoordinatorTest {
     }
 
     @Test
+    fun fullResolutionArtwork_isStoredAlongsideTheThumbnail() = runBlocking {
+        val thumbnail = byteArrayOf(1, 2, 3)
+        val full = byteArrayOf(4, 5, 6, 7)
+        val store = FakeArtworkStore()
+        metadata.artwork = mapOf("a.mp3" to thumbnail)
+        metadata.fullArtwork = mapOf("a.mp3" to full)
+        val coordinator = coordinator(FakeDiscovery(success(file("a.mp3"))), artworkStore = store)
+
+        coordinator.scanFolder(FOLDER)
+
+        val row = dao.getAll().single()
+        assertNotNull(row.artworkUri)
+        assertNotNull(row.fullArtworkUri)
+        assertNotEquals(row.artworkUri, row.fullArtworkUri)
+        assertTrue(row.artworkScanned)
+        assertTrue(row.fullArtworkScanned)
+        assertEquals(2, store.stored.size)
+        assertTrue(store.stored.containsKey(row.artworkUri))
+        assertTrue(store.stored.containsKey(row.fullArtworkUri))
+    }
+
+    @Test
+    fun identicalThumbnailAndFullArtwork_shareOneStoredFile() = runBlocking {
+        val cover = byteArrayOf(8, 8, 8)
+        val store = FakeArtworkStore()
+        metadata.artwork = mapOf("a.mp3" to cover)
+        metadata.fullArtwork = mapOf("a.mp3" to cover)
+        val coordinator = coordinator(FakeDiscovery(success(file("a.mp3"))), artworkStore = store)
+
+        coordinator.scanFolder(FOLDER)
+
+        val row = dao.getAll().single()
+        assertEquals(row.artworkUri, row.fullArtworkUri)
+        assertEquals(1, store.stored.size)
+    }
+
+    @Test
     fun trackWithoutArtwork_indexesNoArtworkReference() = runBlocking {
         val store = FakeArtworkStore()
         val coordinator = coordinator(FakeDiscovery(success(file("a.mp3"))), artworkStore = store)
 
         coordinator.scanFolder(FOLDER)
 
-        assertNull(dao.getAll().single().artworkUri)
+        val row = dao.getAll().single()
+        assertNull(row.artworkUri)
+        assertNull(row.fullArtworkUri)
+        assertTrue(row.artworkScanned)
+        assertTrue(row.fullArtworkScanned)
         assertTrue(store.stored.isEmpty())
     }
 
@@ -339,7 +380,9 @@ class ScanCoordinatorTest {
             ),
         )
         val artwork = byteArrayOf(4, 2)
+        val fullArtwork = byteArrayOf(6, 5, 4)
         metadata.artwork = mapOf("a.mp3" to artwork)
+        metadata.fullArtwork = mapOf("a.mp3" to fullArtwork)
         val store = FakeArtworkStore()
         val coordinator = coordinator(FakeDiscovery(success(file("a.mp3"))), artworkStore = store)
 
@@ -347,10 +390,15 @@ class ScanCoordinatorTest {
 
         val row = dao.getAll().single()
         assertNotNull(row.artworkUri)
+        assertNotNull(row.fullArtworkUri)
         assertTrue("the backfill must be recorded so it is not repeated", row.artworkScanned)
+        assertTrue("the full-resolution backfill must be recorded too", row.fullArtworkScanned)
         assertEquals(1L, row.dateAdded)
         assertEquals(1, metadata.reads)
-        assertEquals(listOf(artwork.toList()), store.stored.values.map { it.toList() })
+        assertEquals(
+            setOf(artwork.toList(), fullArtwork.toList()),
+            store.stored.values.map { it.toList() }.toSet(),
+        )
     }
 
     @Test
@@ -394,13 +442,14 @@ class ScanCoordinatorTest {
     }
 
     @Test
-    fun removedTrack_dropsItsArtwork() = runBlocking {
+    fun removedTrack_dropsBothArtworkVariants() = runBlocking {
         metadata.artwork = mapOf("gone.mp3" to byteArrayOf(5))
+        metadata.fullArtwork = mapOf("gone.mp3" to byteArrayOf(6))
         val store = FakeArtworkStore()
         val discovery = FakeDiscovery(success(file("gone.mp3")))
         val coordinator = coordinator(discovery, artworkStore = store)
         coordinator.scanFolder(FOLDER)
-        assertEquals(1, store.stored.size)
+        assertEquals(2, store.stored.size)
 
         // The folder is now empty, so the indexed track and its artwork go away.
         discovery.result = success()
@@ -408,7 +457,7 @@ class ScanCoordinatorTest {
         coordinator.scanFolder(FOLDER)
 
         assertEquals(0, dao.count())
-        assertTrue(store.stored.isEmpty())
+        assertTrue("both the thumbnail and the full cover must be deleted", store.stored.isEmpty())
     }
 
     @Test
@@ -488,8 +537,11 @@ class ScanCoordinatorTest {
         /** Files whose metadata read fails. */
         var failingUris: Set<String> = emptySet()
 
-        /** Embedded artwork to return per file name. */
+        /** Thumbnail artwork to return per file name. */
         var artwork: Map<String, ByteArray> = emptyMap()
+
+        /** Full-resolution artwork to return per file name. */
+        var fullArtwork: Map<String, ByteArray> = emptyMap()
 
         /** Number of files pushed through metadata extraction. */
         var reads = 0
@@ -513,6 +565,7 @@ class ScanCoordinatorTest {
                             durationMs = 210_000L,
                             albumId = "album-key",
                             artworkBytes = artwork[file.name],
+                            fullArtworkBytes = fullArtwork[file.name],
                         ),
                     )
                 }

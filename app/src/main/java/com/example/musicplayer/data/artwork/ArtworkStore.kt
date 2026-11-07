@@ -1,8 +1,9 @@
 package com.example.musicplayer.data.artwork
 
 /**
- * Persists the bounded artwork images extracted during a scan so the UI never
- * has to re-read embedded pictures from the audio files.
+ * Persists the bounded artwork images (thumbnail and full-resolution variants)
+ * extracted during a scan so the UI never has to re-read embedded pictures from
+ * the audio files.
  *
  * Implementations must never throw: artwork is optional decoration, so a failure
  * to store or delete an image is reported as `null` (or ignored) instead of

@@ -32,8 +32,10 @@ import javax.inject.Singleton
  *    wipe indexed tracks.
  *  - Unchanged files (same URI, size, and modified time) are not re-read, so
  *    rescanning a large library is cheap. A row that was indexed before its
- *    artwork was ever read (`artworkScanned == false`) is the exception: it is
- *    re-read once so covers appear without the user clearing the library.
+ *    artwork was ever read (`artworkScanned == false`) or before the
+ *    full-resolution variant existed (`fullArtworkScanned == false`) is the
+ *    exception: it is re-read once so covers appear without the user clearing
+ *    the library.
  *  - Extracted artwork is stored as a content-addressed file before the row is
  *    written, and stored images that the reconciled library no longer references
  *    are deleted afterwards, so the artwork store tracks the library exactly.
@@ -170,12 +172,14 @@ class ScanCoordinator @Inject constructor(
         // Files whose stamp changed (or that were never indexed) are the only
         // ones worth the cost of another metadata read, plus rows indexed before
         // artwork or track-position extraction ran: those still have
-        // artworkScanned == false or orderScanned == false and get their cover
-        // and album position backfilled by this scan.
+        // artworkScanned == false, fullArtworkScanned == false or
+        // orderScanned == false and get their covers and album position
+        // backfilled by this scan.
         val needsExtraction = discovered.filter { file ->
             val existing = existingByUri[file.uri.toString()]
             existing == null ||
                 !existing.artworkScanned ||
+                !existing.fullArtworkScanned ||
                 !existing.orderScanned ||
                 !existing.isSameFile(size = file.size, modifiedAt = file.lastModified)
         }
@@ -198,12 +202,17 @@ class ScanCoordinator @Inject constructor(
                         metadata = result.metadata,
                         // Preserve first-indexed time across rescans.
                         dateAdded = existing?.dateAdded ?: now,
-                        // This file is being (re)read, so its artwork reference is
-                        // rebuilt from the freshly extracted bytes. Re-storing is
-                        // content addressed: identical bytes keep the same URI and
-                        // a changed cover resolves to a new file, while the stale
-                        // one is dropped by the cleanup below.
+                        // This file is being (re)read, so both artwork references
+                        // are rebuilt from the freshly extracted bytes. Re-storing
+                        // is content addressed: identical bytes keep the same URI
+                        // and a changed cover resolves to a new file, while the
+                        // stale one is dropped by the cleanup below. A small
+                        // source image yields the same bytes for both variants,
+                        // so the store writes a single file.
                         artworkUri = result.metadata.artworkBytes?.let { artworkStore.store(it) },
+                        fullArtworkUri = result.metadata.fullArtworkBytes?.let {
+                            artworkStore.store(it)
+                        },
                     )
                     if (existing == null) added++ else updated++
                 }
@@ -259,7 +268,9 @@ class ScanCoordinator @Inject constructor(
         discNumber = file.cueDiscNumber,
         albumId = null,
         artworkUri = null,
+        fullArtworkUri = null,
         artworkScanned = true,
+        fullArtworkScanned = true,
         orderScanned = true,
         folderUri = file.parentFolderUri.toString(),
         fileSize = file.size,

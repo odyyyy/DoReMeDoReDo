@@ -20,4 +20,5 @@ fun TrackEntity.toTrack(): Track = Track(
     albumId = albumId,
     artworkUri = artworkUri,
     dateAdded = dateAdded,
+    fullArtworkUri = fullArtworkUri,
 )

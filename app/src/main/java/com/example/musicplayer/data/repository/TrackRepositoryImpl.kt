@@ -32,8 +32,7 @@ class TrackRepositoryImpl @Inject constructor(
 
     override suspend fun count(): Int = trackDao.count()
 
-    override suspend fun getArtworkUris(): List<String> =
-        trackDao.getArtworkUris().filterNotNull()
+    override suspend fun getArtworkUris(): List<String> = trackDao.getArtworkUris()
 
     override suspend fun hasTracksWithoutArtworkScan(): Boolean =
         trackDao.countWithoutArtworkScan() > 0

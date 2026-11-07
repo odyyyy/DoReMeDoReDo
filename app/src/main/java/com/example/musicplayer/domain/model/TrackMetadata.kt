@@ -16,8 +16,11 @@ package com.example.musicplayer.domain.model
  * @property discNumber Disc number from the tag or cue sheet, or `null`.
  * @property albumId Stable album-grouping key derived from normalized album and
  *   artist tags, or `null` when the file has no album tag.
- * @property artworkBytes Bounded embedded artwork (downscaled JPEG), or `null`
+ * @property artworkBytes Bounded thumbnail artwork (downscaled JPEG), or `null`
  *   when the file has no artwork or the artwork cannot be decoded.
+ * @property fullArtworkBytes Larger artwork variant used by Now Playing, or
+ *   `null` when unavailable. May reference the same bytes as [artworkBytes] when
+ *   the source image is already thumbnail-sized.
  */
 data class TrackMetadata(
     val title: String,
@@ -28,6 +31,7 @@ data class TrackMetadata(
     val trackNumber: Int? = null,
     val discNumber: Int? = null,
     val artworkBytes: ByteArray? = null,
+    val fullArtworkBytes: ByteArray? = null,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -39,7 +43,8 @@ data class TrackMetadata(
             albumId == other.albumId &&
             trackNumber == other.trackNumber &&
             discNumber == other.discNumber &&
-            artworkBytes.contentEquals(other.artworkBytes)
+            artworkBytes.contentEquals(other.artworkBytes) &&
+            fullArtworkBytes.contentEquals(other.fullArtworkBytes)
     }
 
     override fun hashCode(): Int {
@@ -51,6 +56,7 @@ data class TrackMetadata(
         result = 31 * result + (trackNumber ?: 0)
         result = 31 * result + (discNumber ?: 0)
         result = 31 * result + (artworkBytes?.contentHashCode() ?: 0)
+        result = 31 * result + (fullArtworkBytes?.contentHashCode() ?: 0)
         return result
     }
 

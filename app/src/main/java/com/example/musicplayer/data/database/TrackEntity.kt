@@ -20,12 +20,18 @@ import androidx.room.PrimaryKey
  *   reliable number exists. Used to order an album's tracks.
  * @property discNumber Disc number for multi-disc releases, or `null`.
  * @property albumId Optional album-grouping key derived from tags.
- * @property artworkUri Optional reference to local artwork, or `null` when the
- *   track has no artwork.
+ * @property artworkUri Optional reference to the bounded artwork thumbnail used
+ *   by lists and notifications, or `null` when the track has no artwork.
+ * @property fullArtworkUri Optional reference to the full-resolution artwork
+ *   used by Now Playing. It may be the same file as [artworkUri] when the source
+ *   image is already small, and is `null` when the track has no artwork.
  * @property artworkScanned True once the scanner has tried to read this track's
  *   artwork. Rows indexed before artwork extraction existed start as `false`,
  *   so the next scan backfills them; a track that genuinely has no artwork is
  *   marked `true` and is not re-read on every rescan.
+ * @property fullArtworkScanned True once the scanner has tried to read the
+ *   full-resolution artwork. Rows indexed before the full-resolution variant
+ *   existed start as `false`, so the next scan backfills them once.
  * @property orderScanned True once the scanner has tried to resolve this
  *   track's position (tag or cue sheet). Rows indexed before ordering existed
  *   start as `false`, so the next scan backfills them; a track that genuinely
@@ -60,8 +66,11 @@ data class TrackEntity(
     val discNumber: Int? = null,
     val albumId: String?,
     val artworkUri: String?,
+    val fullArtworkUri: String? = null,
     @ColumnInfo(defaultValue = "0")
     val artworkScanned: Boolean = false,
+    @ColumnInfo(defaultValue = "0")
+    val fullArtworkScanned: Boolean = false,
     @ColumnInfo(defaultValue = "0")
     val orderScanned: Boolean = false,
     val folderUri: String,

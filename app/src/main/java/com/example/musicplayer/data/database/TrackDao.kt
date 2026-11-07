@@ -57,19 +57,26 @@ interface TrackDao {
     suspend fun count(): Int
 
     /**
-     * Returns the artwork URIs referenced by the library (one row per track,
-     * duplicates included). Used to delete stored artwork that no track points
-     * at any more.
+     * Returns every artwork URI referenced by the library, covering both the
+     * thumbnail and the full-resolution variant. Used to delete stored artwork
+     * that no track points at any more.
      */
-    @Query("SELECT artworkUri FROM tracks WHERE artworkUri IS NOT NULL")
-    suspend fun getArtworkUris(): List<String?>
+    @Query(
+        "SELECT artworkUri FROM tracks WHERE artworkUri IS NOT NULL " +
+            "UNION " +
+            "SELECT fullArtworkUri FROM tracks WHERE fullArtworkUri IS NOT NULL",
+    )
+    suspend fun getArtworkUris(): List<String>
 
     /**
-     * Number of indexed tracks whose artwork has never been read. Rows indexed
-     * before the artwork pipeline existed (including rows migrated from schema
-     * version 1) count here until a rescan backfills them.
+     * Number of indexed tracks whose artwork (thumbnail or full-resolution) has
+     * never been read. Rows indexed before the artwork pipeline or the
+     * full-resolution variant existed count here until a rescan backfills them.
      */
-    @Query("SELECT COUNT(*) FROM tracks WHERE artworkScanned = 0")
+    @Query(
+        "SELECT COUNT(*) FROM tracks " +
+            "WHERE artworkScanned = 0 OR fullArtworkScanned = 0",
+    )
     suspend fun countWithoutArtworkScan(): Int
 
     /**

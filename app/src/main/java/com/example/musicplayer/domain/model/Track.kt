@@ -16,8 +16,10 @@ package com.example.musicplayer.domain.model
  *   library has no reliable number (tag, cue sheet, or file name).
  * @property discNumber Disc number for multi-disc releases, or `null`.
  * @property albumId Optional album-grouping key derived from tags.
- * @property artworkUri Optional local artwork reference, or `null` when the
- *   track has no artwork.
+ * @property artworkUri Optional bounded artwork thumbnail used by lists and
+ *   notifications, or `null` when the track has no artwork.
+ * @property fullArtworkUri Optional full-resolution artwork used by Now Playing,
+ *   or `null` when unavailable.
  * @property dateAdded Timestamp (ms since epoch) when the track was first
  *   indexed; used for sorting.
  */
@@ -32,4 +34,5 @@ data class Track(
     val albumId: String?,
     val artworkUri: String?,
     val dateAdded: Long,
+    val fullArtworkUri: String? = null,
 )

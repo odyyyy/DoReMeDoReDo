@@ -27,8 +27,8 @@ class DoReMeDoReDoApp : Application(), SingletonImageLoader.Factory {
      *    `FileArtworkStore`, so a second on-disk copy would only double storage
      *    and add a second cache that the library does not control.
      *  - Image requests keep Coil's default size resolution, so a 44 dp list row
-     *    decodes a thumbnail-sized bitmap out of the 512 px master rather than the
-     *    full-size image.
+     *    decodes a thumbnail-sized bitmap out of the 512 px thumbnail, while Now
+     *    Playing decodes the larger full-resolution variant for its cover.
      */
     override fun newImageLoader(context: PlatformContext): ImageLoader =
         ImageLoader.Builder(context)

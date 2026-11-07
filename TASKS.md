@@ -920,8 +920,6 @@ DONE:display the track format (FLAC, ogg, mp3) on the track playback screen
 
 DONE:show the track playback process in mini mode
 
-DONE:change the animation of going back (by pressing the back button on the smartphone)
-
 DONE:display the background in Playback Screen with blurred colors from the cover image
 
 DONE: Make animation for GraphicEq icon in TrackItem when track is playing. change graphiceq icon animation make eq lines change height like they are playing track
@@ -932,7 +930,9 @@ DONE:read and arrange the order of tracks in an album. Album position is resolve
 
 TODO:fix low fps performance when scrolling through the track list quickly on the "all tracks" tab when the number of tracks reaches 300+
 
-TODO: show do not compressed the cover on the playback screen
+DONE: show a full-resolution album cover on the playback screen. Artwork is now stored as two content-addressed variants: the existing 512 px thumbnail (`artworkUri`, used by lists, the mini player, queue rows and the media notification) and a larger cover (`fullArtworkUri`, up to 2048 px at higher JPEG quality, used by Now Playing). The player carries the full cover URI in media-item extras, so Now Playing falls back to the thumbnail for libraries that have not been re-read yet. Schema v4 adds `fullArtworkUri` and `fullArtworkScanned` with an automatic 3 -> 4 migration; the next Rescan backfills existing rows once. Small source images resolve to the same stored file for both variants, and artwork cleanup considers both columns. Validated with `testDebugUnitTest`, `assembleDebug`, `assembleDebugAndroidTest`, and 30 targeted instrumented tests on the connected device (MetadataExtractor, ScanCoordinator, TrackDao) — all passing.
+
+TODO: change the animation of going back (by pressing the back button on the smartphone)
 
 
 

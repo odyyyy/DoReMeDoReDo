@@ -169,6 +169,12 @@ fun NowPlayingContent(
                 extractAudioFormat(state.trackUri, state.title)
             }
 
+            // Now Playing is the only surface that draws the cover large enough
+            // to need the full-resolution variant; lists and the notification
+            // keep using the small thumbnail. The fallback covers libraries
+            // indexed before the full variant existed.
+            val displayArtworkUri = state.fullArtworkUri ?: state.artworkUri
+
             // The artwork takes whatever vertical space is left, so a short
             // window shrinks the image instead of pushing controls off screen.
             // Horizontal swipes switch tracks, and a tap opens the album.
@@ -199,7 +205,7 @@ fun NowPlayingContent(
                 contentAlignment = Alignment.Center,
             ) {
                 ArtworkImage(
-                    artworkUri = state.artworkUri,
+                    artworkUri = displayArtworkUri,
                     title = state.title,
                     modifier = Modifier
                         .fillMaxHeight()

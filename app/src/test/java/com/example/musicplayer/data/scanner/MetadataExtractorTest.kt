@@ -13,6 +13,7 @@ class MetadataExtractorTest {
     @Test
     fun buildMetadata_mapsAvailableTags() {
         val artwork = byteArrayOf(1, 2, 3)
+        val fullArtwork = byteArrayOf(4, 5, 6, 7)
 
         val metadata = MetadataExtractor.buildMetadata(
             fileName = "file.mp3",
@@ -21,6 +22,7 @@ class MetadataExtractorTest {
             rawAlbum = "Song Album",
             rawDuration = "123456",
             artworkBytes = artwork,
+            fullArtworkBytes = fullArtwork,
         )
 
         assertEquals("Song Title", metadata.title)
@@ -29,6 +31,7 @@ class MetadataExtractorTest {
         assertEquals(123456L, metadata.durationMs)
         assertNotNull(metadata.albumId)
         assertArrayEquals(artwork, metadata.artworkBytes)
+        assertArrayEquals(fullArtwork, metadata.fullArtworkBytes)
     }
 
     @Test
@@ -63,6 +66,7 @@ class MetadataExtractorTest {
         assertEquals(0L, metadata.durationMs)
         assertNull(metadata.albumId)
         assertNull(metadata.artworkBytes)
+        assertNull(metadata.fullArtworkBytes)
     }
 
     @Test

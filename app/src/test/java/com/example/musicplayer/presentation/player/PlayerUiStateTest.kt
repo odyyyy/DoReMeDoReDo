@@ -21,6 +21,7 @@ class PlayerUiStateTest {
         album = "Album",
         artworkUri = "content://music/art-1",
         durationMs = 120_000L,
+        fullArtworkUri = "content://music/art-1-full",
     )
 
     @Test
@@ -48,6 +49,7 @@ class PlayerUiStateTest {
         assertEquals("Artist", uiState.artist)
         assertEquals("Album", uiState.album)
         assertEquals("content://music/art-1", uiState.artworkUri)
+        assertEquals("content://music/art-1-full", uiState.fullArtworkUri)
         assertTrue(uiState.isPlaying)
         assertFalse(uiState.isBuffering)
         assertTrue(uiState.hasNext)
