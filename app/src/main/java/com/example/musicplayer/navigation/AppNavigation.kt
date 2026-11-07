@@ -1,5 +1,7 @@
 package com.example.musicplayer.navigation
 
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -98,25 +100,20 @@ fun AppNavigation(
             navController = navController,
             startDestination = Routes.TRACKS,
             modifier = Modifier.padding(innerPadding),
-            // Pushed screens slide in from the right; going back slides the
-            // current screen out to the right and brings the previous one in
-            // from the left, so Back reads as a reversal of the forward motion.
+            // Pushed screens slide in from the right while the screen below
+            // shifts slightly left, so opening a screen reads as forward motion.
             enterTransition = {
                 slideInHorizontally(animationSpec = tween(NAVIGATION_ANIMATION_MS)) { it } +
-                    fadeIn(animationSpec = tween(NAVIGATION_FADE_MS))
+                        fadeIn(animationSpec = tween(NAVIGATION_FADE_MS))
             },
             exitTransition = {
                 slideOutHorizontally(animationSpec = tween(NAVIGATION_ANIMATION_MS)) { -it / 3 } +
-                    fadeOut(animationSpec = tween(NAVIGATION_FADE_MS))
+                        fadeOut(animationSpec = tween(NAVIGATION_FADE_MS))
             },
-            popEnterTransition = {
-                slideInHorizontally(animationSpec = tween(NAVIGATION_ANIMATION_MS)) { -it / 3 } +
-                    fadeIn(animationSpec = tween(NAVIGATION_FADE_MS))
-            },
-            popExitTransition = {
-                slideOutHorizontally(animationSpec = tween(NAVIGATION_ANIMATION_MS)) { it } +
-                    fadeOut(animationSpec = tween(NAVIGATION_FADE_MS))
-            },
+            // Back returns to the previous screen immediately, with no
+            // transition, so the system Back button and gesture feel instant.
+            popEnterTransition = { EnterTransition.None },
+            popExitTransition = { ExitTransition.None },
         ) {
             composable(Routes.TRACKS) {
                 TracksScreen(
@@ -181,8 +178,8 @@ private fun NavHostController.navigateToTab(destination: TopLevelDestination) {
     }
 }
 
-/** Duration of the horizontal screen slide used for push and back navigation. */
+/** Duration of the horizontal screen slide used for push navigation. */
 private const val NAVIGATION_ANIMATION_MS = 260
 
-/** Duration of the cross-fade layered on top of the slide. */
+/** Duration of the cross-fade layered on top of the push slide. */
 private const val NAVIGATION_FADE_MS = 170
