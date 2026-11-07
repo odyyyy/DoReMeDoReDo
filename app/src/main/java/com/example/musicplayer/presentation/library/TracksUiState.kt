@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.FlowPreview
 
@@ -65,6 +66,7 @@ fun buildTracksUiState(
     tracks: Flow<List<Track>>,
     searchQuery: Flow<String>,
     sort: Flow<TrackSort>,
+    shuffleSeed: Flow<Long> = flowOf(0L),
     dispatcher: CoroutineDispatcher = Dispatchers.Default,
 ): Flow<TracksUiState> {
     // Explicit type: R must widen to TracksUiState so .catch can emit Error.
@@ -72,9 +74,10 @@ fun buildTracksUiState(
         tracks,
         searchQuery.debounce { if (it.isBlank()) 0L else SEARCH_DEBOUNCE_MS },
         sort,
-    ) { allTracks, query, activeSort ->
+        shuffleSeed,
+    ) { allTracks, query, activeSort, seed ->
         TracksUiState.Ready(
-            tracks = filterAndSortTracks(allTracks, query, activeSort),
+            tracks = filterAndSortTracks(allTracks, query, activeSort, seed),
             totalTracks = allTracks.size,
             query = query,
             sort = activeSort,

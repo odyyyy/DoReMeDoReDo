@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.musicplayer.player.PlaybackRepeatMode
+import com.example.musicplayer.presentation.player.PlaybackProgress
 import com.example.musicplayer.presentation.player.PlayerUiState
 import com.example.musicplayer.ui.theme.DoReMeDoReDoTheme
 import org.junit.Assert.assertEquals
@@ -31,7 +32,10 @@ class MiniPlayerTest {
     private var togglePlayPauseCount = 0
     private var nextCount = 0
 
-    private fun setContent(state: PlayerUiState) {
+    private fun setContent(
+        state: PlayerUiState,
+        progress: PlaybackProgress? = null,
+    ) {
         composeRule.setContent {
             DoReMeDoReDoTheme {
                 MiniPlayer(
@@ -39,6 +43,7 @@ class MiniPlayerTest {
                     onOpenNowPlaying = { openNowPlayingCount++ },
                     onTogglePlayPause = { togglePlayPauseCount++ },
                     onNext = { nextCount++ },
+                    progress = { progress },
                 )
             }
         }
@@ -98,6 +103,34 @@ class MiniPlayerTest {
 
         composeRule.onNodeWithContentDescription("Buffering").assertExists()
         composeRule.onNodeWithText("Playback failed.").assertIsDisplayed()
+    }
+
+    @Test
+    fun playbackProgressIsShownOnlyWhenTheDurationIsKnown() {
+        setContent(
+            state = state(),
+            progress = PlaybackProgress(
+                trackUri = "content://music/track-1",
+                positionMs = 30_000L,
+                durationMs = 120_000L,
+                isPlaying = true,
+            ),
+        )
+        composeRule.onNodeWithContentDescription("Playback progress").assertExists()
+    }
+
+    @Test
+    fun playbackProgressIsHiddenWithoutADuration() {
+        setContent(
+            state = state(),
+            progress = PlaybackProgress(
+                trackUri = "content://music/track-1",
+                positionMs = 0L,
+                durationMs = 0L,
+                isPlaying = true,
+            ),
+        )
+        composeRule.onNodeWithContentDescription("Playback progress").assertDoesNotExist()
     }
 
     private fun state(

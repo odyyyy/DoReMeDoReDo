@@ -907,6 +907,35 @@ Validate the app with large music libraries and target Android versions, fix cri
 
 ---
 
+Fixes:
+DONE: When shuffle mode is enabled, it also displays shuffled tracks in the queue.
+
+DONE: When you click on the cover, the album name redirects to the album screen.
+
+DONE: Swipe left/right track switching
+
+DONE:add a shuffle sorting type shuffling tracks in the list in random order. it should work like button and shuffle on click but it need to be placed in sort menu
+
+DONE:display the track format (FLAC, ogg, mp3) on the track playback screen
+
+DONE:show the track playback process in mini mode
+
+DONE:change the animation of going back (by pressing the back button on the smartphone)
+
+DONE:display the background in Playback Screen with blurred colors from the cover image
+
+DONE: Make animation for GraphicEq icon in TrackItem when track is playing. change graphiceq icon animation make eq lines change height like they are playing track
+
+DONE: Fix a bug displaying the number of tracks in the queue (tracks number e.g. 305 is out of the badge) on the all tracks screen
+
+TODO:read and arrange the order of tracks in an album based on a cue file
+
+TODO:fix low fps performance when scrolling through the track list quickly on the "all tracks" tab when the number of tracks reaches 300+
+
+TODO: show do not compressed the cover on the playback screen
+
+
+
 ## Execution rules
 
 1. Execute tasks in order unless a dependency requires a documented adjustment.

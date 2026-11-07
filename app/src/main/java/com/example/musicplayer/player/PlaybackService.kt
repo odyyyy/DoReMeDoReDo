@@ -2,6 +2,7 @@ package com.example.musicplayer.player
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.os.Bundle
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
@@ -10,7 +11,11 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
 import com.example.musicplayer.MainActivity
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 
 /**
  * Background playback service and the single owner of the app's ExoPlayer.
@@ -41,11 +46,11 @@ import com.example.musicplayer.MainActivity
  * `TASKS.md` (Task 18) for the documented limitation and the Media3
  * `onPlaybackResumption` path that would restore it.
  */
+@UnstableApi
 class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
 
-    @UnstableApi
     override fun onCreate() {
         super.onCreate()
 
@@ -68,6 +73,7 @@ class PlaybackService : MediaSessionService() {
 
         mediaSession = MediaSession.Builder(this, player)
             .setSessionActivity(openAppPendingIntent())
+            .setCallback(PlaybackSessionCallback())
             .build()
     }
 
@@ -91,4 +97,78 @@ class PlaybackService : MediaSessionService() {
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+
+    /**
+     * Exposes the read-only shuffle-order command to the app's controller.
+     *
+     * Media3 keeps the shuffle traversal order private on the
+     * `androidx.media3.common.Player` surface exposed through a [MediaSession],
+     * so the service answers a custom command
+     * with a projection of `ExoPlayer.shuffleOrder`. The controller only reads
+     * it to render the Queue in the order shuffle will play; nothing about the
+     * player or its position is changed.
+     */
+    private inner class PlaybackSessionCallback : MediaSession.Callback {
+
+        override fun onConnect(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+        ): MediaSession.ConnectionResult {
+            val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS
+                .buildUpon()
+                .add(PlaybackSessionCommands.getShuffleOrder)
+                .build()
+            // Build from the session and the controller info so its activity
+            // (notification tap target) and other connection defaults are
+            // preserved.
+            return MediaSession.ConnectionResult.AcceptedResultBuilder(session, controller)
+                .setAvailableSessionCommands(sessionCommands)
+                .build()
+        }
+
+        override fun onCustomCommand(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            customCommand: SessionCommand,
+            args: Bundle,
+        ): ListenableFuture<SessionResult> {
+            if (customCommand.customAction != PlaybackSessionCommands.ACTION_GET_SHUFFLE_ORDER) {
+                return Futures.immediateFuture(
+                    SessionResult(SessionResult.RESULT_ERROR_NOT_SUPPORTED),
+                )
+            }
+
+            val extras = Bundle().apply {
+                putIntArray(
+                    PlaybackSessionCommands.EXTRA_SHUFFLE_ORDER,
+                    currentShuffleOrder(),
+                )
+            }
+            return Futures.immediateFuture(
+                SessionResult(SessionResult.RESULT_SUCCESS, extras),
+            )
+        }
+    }
+
+    /** Playlist indices in the order Media3 will traverse them while shuffling. */
+    private fun currentShuffleOrder(): IntArray {
+        val player = mediaSession?.player as? ExoPlayer ?: return IntArray(0)
+        val order = player.shuffleOrder
+        val result = IntArray(order.length)
+        val seen = BooleanArray(order.length)
+        var index = order.getFirstIndex()
+        var position = 0
+
+        while (index != C.INDEX_UNSET &&
+            index in 0 until order.length &&
+            !seen[index] &&
+            position < result.size
+        ) {
+            seen[index] = true
+            result[position++] = index
+            index = order.getNextIndex(index)
+        }
+
+        return if (position == result.size) result else result.copyOf(position)
+    }
 }

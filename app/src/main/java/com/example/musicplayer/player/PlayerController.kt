@@ -2,6 +2,7 @@ package com.example.musicplayer.player
 
 import android.content.ComponentName
 import android.content.Context
+import android.os.Bundle
 import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.media3.common.C
@@ -71,8 +72,26 @@ class PlayerController @Inject constructor(
      */
     private var cachedQueue: PlaybackQueue = PlaybackQueue()
 
+    /**
+     * Playlist indices in Media3's shuffle traversal order, or `null` when
+     * shuffle is off. Fetched from the service because Media3 does not expose
+     * the order on the `Player` interface; it is used only to project the
+     * Queue screen in play order.
+     */
+    private var shuffleOrder: IntArray? = null
+
     private val playerListener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
+            // The shuffle order changes when shuffle is toggled or the playlist
+            // itself changes, so refresh the projection on those events only.
+            if (events.containsAny(
+                    Player.EVENT_TIMELINE_CHANGED,
+                    Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED,
+                )
+            ) {
+                refreshShuffleOrder(player)
+            }
+
             // Playlist/timeline events are infrequent, so rebuild the queue
             // here rather than on every position tick.
             publish(player, refreshQueue = true)
@@ -91,6 +110,7 @@ class PlayerController @Inject constructor(
             positionUpdates?.cancel()
             positionUpdates = null
             cachedQueue = PlaybackQueue()
+            shuffleOrder = null
             _state.value = PlaybackState()
         }
     }
@@ -116,6 +136,9 @@ class PlayerController @Inject constructor(
                         _state.value = _state.value.copy(isConnected = true)
                         flushPendingCommands(mediaController)
                         publish(mediaController, refreshQueue = true)
+                        // The session may already be shuffling (UI reattached
+                        // while playback continues in the background).
+                        refreshShuffleOrder(mediaController)
                         startPositionUpdates()
                     }
                     .onFailure {
@@ -189,10 +212,13 @@ class PlayerController @Inject constructor(
      */
     fun moveQueueItem(fromIndex: Int, toIndex: Int) = withController { mediaController ->
         val count = mediaController.mediaItemCount
-        if (fromIndex == toIndex || fromIndex !in 0 until count || toIndex !in 0 until count) {
+        // Queue positions may be shuffled; map them back to playlist indices.
+        val from = cachedQueue.playlistIndexAt(fromIndex)
+        val to = cachedQueue.playlistIndexAt(toIndex)
+        if (from == to || from !in 0 until count || to !in 0 until count) {
             return@withController
         }
-        mediaController.moveMediaItem(fromIndex, toIndex)
+        mediaController.moveMediaItem(from, to)
     }
 
     /**
@@ -202,8 +228,9 @@ class PlayerController @Inject constructor(
      * (or previous) item, so the observed index stays consistent with the player.
      */
     fun removeQueueItem(index: Int) = withController { mediaController ->
-        if (index in 0 until mediaController.mediaItemCount) {
-            mediaController.removeMediaItem(index)
+        val playlistIndex = cachedQueue.playlistIndexAt(index)
+        if (playlistIndex in 0 until mediaController.mediaItemCount) {
+            mediaController.removeMediaItem(playlistIndex)
         }
     }
 
@@ -214,9 +241,12 @@ class PlayerController @Inject constructor(
      * player resumes; nothing changes when the index is out of bounds.
      */
     fun seekToQueueItem(index: Int) = withController { mediaController ->
-        if (index !in 0 until mediaController.mediaItemCount) return@withController
+        // The Queue screen shows the shuffled order while shuffle is on, so a
+        // tapped row has to be translated to its real playlist index.
+        val playlistIndex = cachedQueue.playlistIndexAt(index)
+        if (playlistIndex !in 0 until mediaController.mediaItemCount) return@withController
 
-        mediaController.seekToDefaultPosition(index)
+        mediaController.seekToDefaultPosition(playlistIndex)
         if (!mediaController.isPlaying) {
             if (mediaController.playbackState == Player.STATE_IDLE) {
                 mediaController.prepare()
@@ -410,10 +440,67 @@ class PlayerController @Inject constructor(
         )
     }
 
+    /**
+     * Asks the service for the current shuffle traversal order.
+     *
+     * The request is read-only and asynchronous; once the order arrives the
+     * queue is rebuilt so the Queue screen shows the order shuffle will
+     * actually play. While shuffle is off the cached order is dropped.
+     */
+    private fun refreshShuffleOrder(player: Player) {
+        val mediaController = player as? MediaController ?: return
+        if (!player.shuffleModeEnabled) {
+            shuffleOrder = null
+            return
+        }
+
+        val future = runCatching {
+            mediaController.sendCustomCommand(
+                PlaybackSessionCommands.getShuffleOrder,
+                Bundle.EMPTY,
+            )
+        }.getOrNull() ?: return
+
+        future.addListener(
+            {
+                if (controller !== mediaController) return@addListener
+                if (!mediaController.shuffleModeEnabled) return@addListener
+
+                val result = runCatching { future.get() }.getOrNull() ?: return@addListener
+                val order = result.extras
+                    .getIntArray(PlaybackSessionCommands.EXTRA_SHUFFLE_ORDER)
+                    ?: return@addListener
+                if (order.size != mediaController.mediaItemCount) return@addListener
+
+                shuffleOrder = order
+                publish(mediaController, refreshQueue = true)
+            },
+            ContextCompat.getMainExecutor(context),
+        )
+    }
+
     /** Projects the player's playlist and current index into a [PlaybackQueue]. */
     private fun buildQueue(player: Player): PlaybackQueue {
         val count = player.mediaItemCount
         if (count == 0) return PlaybackQueue()
+
+        val order = shuffleOrder
+        if (player.shuffleModeEnabled && order != null && order.size == count) {
+            val items = order.map { index ->
+                player.getMediaItemAt(index).toPlaybackTrack()
+            }
+            val current = player.currentMediaItemIndex
+            val currentDisplay = if (current == C.INDEX_UNSET) {
+                -1
+            } else {
+                order.indexOf(current)
+            }
+            return PlaybackQueue(
+                items = items,
+                currentIndex = currentDisplay,
+                playlistIndices = order.toList(),
+            )
+        }
 
         val items = ArrayList<PlaybackTrack>(count)
         for (index in 0 until count) {
@@ -434,6 +521,7 @@ class PlayerController @Inject constructor(
             album = mediaMetadata.albumTitle?.toString(),
             artworkUri = mediaMetadata.artworkUri?.toString(),
             durationMs = durationOverrideMs ?: mediaMetadata.durationMs ?: 0L,
+            albumId = mediaMetadata.extras?.getString(EXTRA_ALBUM_ID),
         )
 
     private fun Long.validOrZero(): Long =

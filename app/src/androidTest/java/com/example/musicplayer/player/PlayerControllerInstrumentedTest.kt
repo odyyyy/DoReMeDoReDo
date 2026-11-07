@@ -293,7 +293,10 @@ class PlayerControllerInstrumentedTest {
         }
         assertTrue(grown.shuffleModeEnabled)
         assertEquals(current.queue.currentItem?.mediaId, grown.queue.currentItem?.mediaId)
-        assertEquals(appended.uri, grown.queue.items.last().mediaId)
+        // While shuffle is on the queue is projected in traversal order, so the
+        // appended item can be anywhere; it must at least be present exactly
+        // once. Toggling shuffle off below restores playlist order.
+        assertEquals(1, grown.queue.items.count { it.mediaId == appended.uri })
 
         controller.toggleShuffle()
         withTimeout(PLAYBACK_TIMEOUT_MS) {
@@ -321,6 +324,95 @@ class PlayerControllerInstrumentedTest {
             controller.state.first { it.repeatMode == PlaybackRepeatMode.ONE }
         }
         assertEquals(PlaybackRepeatMode.ONE, direct.repeatMode)
+    }
+
+    /**
+     * With shuffle on, the Queue projection follows the player's real shuffle
+     * traversal order while still mapping every displayed row back to its
+     * playlist index. This exercises the custom session command that exposes
+     * `ExoPlayer.shuffleOrder` to the app.
+     */
+    @Test
+    fun shuffleQueue_isProjectedInPlayOrderAndMapsBackToPlaylist() = runBlocking {
+        withTimeout(CONNECT_TIMEOUT_MS) {
+            controller.state.first { it.isConnected }
+        }
+        if (controller.state.value.shuffleModeEnabled) {
+            controller.setShuffleModeEnabled(false)
+            withTimeout(PLAYBACK_TIMEOUT_MS) {
+                controller.state.first { !it.shuffleModeEnabled }
+            }
+        }
+
+        val tracks = (1..4).map { index -> wavTrack("order$index", "Order $index") }
+        controller.setQueue(tracks, startIndex = 0)
+        val plain = withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first { it.queue.size == 4 && it.isPlaying }
+        }
+
+        controller.setShuffleModeEnabled(true)
+        val shuffled = withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first {
+                it.shuffleModeEnabled && it.queue.playlistIndices.size == 4
+            }
+        }
+
+        assertEquals(4, shuffled.queue.items.size)
+        assertEquals(
+            plain.queue.items.map { it.mediaId }.toSet(),
+            shuffled.queue.items.map { it.mediaId }.toSet(),
+        )
+        // Displayed position -> playlist index must resolve to the same item.
+        shuffled.queue.playlistIndices.forEachIndexed { displayIndex, playlistIndex ->
+            assertEquals(
+                plain.queue.items[playlistIndex].mediaId,
+                shuffled.queue.items[displayIndex].mediaId,
+            )
+        }
+        // The highlighted row is the item the player is actually on.
+        assertEquals(
+            shuffled.currentTrack?.mediaId,
+            shuffled.queue.currentItem?.mediaId,
+        )
+
+        controller.setShuffleModeEnabled(false)
+        val restored = withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first {
+                !it.shuffleModeEnabled && it.queue.playlistIndices.isEmpty()
+            }
+        }
+        assertEquals(
+            plain.queue.items.map { it.mediaId },
+            restored.queue.items.map { it.mediaId },
+        )
+    }
+
+    /**
+     * The album grouping key is carried in media metadata extras through the
+     * session/controller boundary, which is what lets Now Playing open the
+     * album of the current track.
+     */
+    @Test
+    fun albumKey_survivesTheSessionRoundTrip() = runBlocking {
+        withTimeout(CONNECT_TIMEOUT_MS) {
+            controller.state.first { it.isConnected }
+        }
+
+        val file = TestTracks.wavFile(
+            context = context,
+            name = "album-${System.nanoTime()}.wav",
+        ).also { createdFiles += it }
+        val track = TestTracks.track(
+            file = file,
+            title = "Album Test",
+            albumId = "album-42",
+        )
+
+        controller.setQueue(listOf(track), startIndex = 0)
+        val state = withTimeout(PLAYBACK_TIMEOUT_MS) {
+            controller.state.first { it.currentTrack?.mediaId == track.uri }
+        }
+        assertEquals("album-42", state.currentTrack?.albumId)
     }
 
     /**

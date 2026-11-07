@@ -1,6 +1,7 @@
 package com.example.musicplayer.presentation.player
 
 import com.example.musicplayer.domain.model.TrackMetadata
+import com.example.musicplayer.domain.model.albumGroupingKey
 import com.example.musicplayer.player.PlaybackRepeatMode
 import com.example.musicplayer.player.PlaybackState
 
@@ -41,7 +42,16 @@ data class PlayerUiState(
     val repeatMode: PlaybackRepeatMode,
     val hasEnded: Boolean,
     val errorMessage: String?,
-)
+    /** Album grouping key carried by the player, or `null` when unknown. */
+    val albumId: String? = null,
+) {
+    /**
+     * Key of the album this track belongs to, resolved the same way the album
+     * grid groups tracks, so tapping the cover can open the matching album.
+     */
+    val albumGroupingKey: String
+        get() = albumGroupingKey(albumId, album.orEmpty(), artist.orEmpty())
+}
 
 /** Shown when a queued item carries no title metadata. */
 internal const val UNKNOWN_TRACK_TITLE = "Unknown Track"
@@ -68,6 +78,7 @@ fun PlaybackState.toPlayerUiState(): PlayerUiState? {
         repeatMode = repeatMode,
         hasEnded = hasEnded,
         errorMessage = playbackError,
+        albumId = track.albumId,
     )
 }
 

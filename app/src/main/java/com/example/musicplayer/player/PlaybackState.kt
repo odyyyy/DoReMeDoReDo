@@ -56,4 +56,6 @@ data class PlaybackTrack(
     val album: String?,
     val artworkUri: String?,
     val durationMs: Long,
+    /** Album grouping key carried from the library, or `null` when unknown. */
+    val albumId: String? = null,
 )

@@ -49,6 +49,7 @@ import com.example.musicplayer.player.PlaybackQueue
 import com.example.musicplayer.player.PlaybackTrack
 import com.example.musicplayer.presentation.components.ArtworkImage
 import com.example.musicplayer.presentation.components.MessageStatus
+import com.example.musicplayer.presentation.components.PlayingEqualizer
 import com.example.musicplayer.presentation.components.extractAudioFormat
 import com.example.musicplayer.presentation.components.formatDuration
 import androidx.compose.material3.Surface
@@ -72,6 +73,8 @@ fun QueueScreen(
     viewModel: QueueViewModel = hiltViewModel(),
 ) {
     val queue by viewModel.queue.collectAsStateWithLifecycle()
+    val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
+    val shuffleModeEnabled by viewModel.shuffleModeEnabled.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     var initialScrollDone by remember { mutableStateOf(false) }
 
@@ -112,7 +115,11 @@ fun QueueScreen(
             }
         } else {
             Text(
-                text = "Long-press a track to reorder",
+                text = if (shuffleModeEnabled) {
+                    "Shuffle is on; turn it off to reorder"
+                } else {
+                    "Long-press a track to reorder"
+                },
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -122,6 +129,8 @@ fun QueueScreen(
             QueueList(
                 queue = queue,
                 listState = listState,
+                isPlaying = isPlaying,
+                canReorder = !shuffleModeEnabled,
                 onSelect = viewModel::onSelect,
                 onMove = viewModel::onMove,
                 onRemove = viewModel::onRemove,
@@ -177,6 +186,8 @@ private fun QueueTopBar(
 private fun QueueList(
     queue: PlaybackQueue,
     listState: androidx.compose.foundation.lazy.LazyListState,
+    isPlaying: Boolean,
+    canReorder: Boolean,
     onSelect: (Int) -> Unit,
     onMove: (Int, Int) -> Unit,
     onRemove: (Int) -> Unit,
@@ -199,6 +210,7 @@ private fun QueueList(
             QueueRow(
                 item = item,
                 isCurrent = index == queue.currentIndex,
+                isPlaying = isPlaying,
                 isDragging = isDragging,
                 onSelect = handleSelect,
                 onRemove = handleRemove,
@@ -207,7 +219,8 @@ private fun QueueList(
                     .graphicsLayer {
                         translationY = if (isDragging) dragOffsetY else 0f
                     }
-                    .pointerInput(items.size, index) {
+                    .pointerInput(items.size, index, canReorder) {
+                        if (!canReorder) return@pointerInput
                         detectDragGesturesAfterLongPress(
                             onDragStart = {
                                 draggingIndex = index
@@ -242,6 +255,7 @@ private fun QueueList(
 private fun QueueRow(
     item: PlaybackTrack,
     isCurrent: Boolean,
+    isPlaying: Boolean,
     isDragging: Boolean,
     onSelect: () -> Unit,
     onRemove: () -> Unit,
@@ -330,12 +344,19 @@ private fun QueueRow(
         }
 
         if (isCurrent) {
-            Icon(
-                imageVector = Icons.Rounded.GraphicEq,
-                contentDescription = "Playing",
-                tint = colors.primary,
-                modifier = Modifier.size(16.dp),
-            )
+            if (isPlaying) {
+                PlayingEqualizer(
+                    color = colors.primary,
+                    modifier = Modifier.size(16.dp),
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Rounded.GraphicEq,
+                    contentDescription = "Paused",
+                    tint = colors.primary,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
 
             Spacer(modifier = Modifier.width(10.dp))
         }

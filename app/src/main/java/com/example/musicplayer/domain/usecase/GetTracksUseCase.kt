@@ -42,6 +42,7 @@ fun filterAndSortTracks(
     tracks: List<Track>,
     query: String,
     sort: TrackSort,
+    shuffleSeed: Long = 0L,
 ): List<Track> {
     val needle = query.trim()
     val filtered = if (needle.isEmpty()) {
@@ -53,13 +54,28 @@ fun filterAndSortTracks(
                 track.album.contains(needle, ignoreCase = true)
         }
     }
-    return filtered.sortedWith(sort.comparator())
+    return filtered.sortedWith(sort.comparator(shuffleSeed))
 }
 
-private fun TrackSort.comparator(): Comparator<Track> = when (this) {
+private fun TrackSort.comparator(shuffleSeed: Long): Comparator<Track> = when (this) {
     TrackSort.TITLE -> compareBy(String.CASE_INSENSITIVE_ORDER) { it.title }
     TrackSort.ARTIST -> compareBy(String.CASE_INSENSITIVE_ORDER) { it.artist }
     TrackSort.ALBUM -> compareBy(String.CASE_INSENSITIVE_ORDER) { it.album }
     TrackSort.DURATION -> compareBy { it.durationMs }
     TrackSort.DATE_ADDED -> compareBy { it.dateAdded }
+    TrackSort.SHUFFLE -> compareBy { shuffleRank(it.uri, shuffleSeed) }
+}
+
+/**
+ * Deterministic pseudo-random rank for [uri] under [seed].
+ *
+ * A hash rank keeps the shuffle pure: the same seed always produces the same
+ * order, so recomposition or a repeat emission does not reshuffle the list. The
+ * ViewModel advances the seed when the user picks Shuffle again.
+ */
+private fun shuffleRank(uri: String, seed: Long): Long {
+    var hash = uri.hashCode().toLong() xor (seed * -7046029254386353131L)
+    hash = (hash xor (hash ushr 33)) * -49064778989728563L
+    hash = (hash xor (hash ushr 33)) * -4265267296055464877L
+    return hash xor (hash ushr 33)
 }

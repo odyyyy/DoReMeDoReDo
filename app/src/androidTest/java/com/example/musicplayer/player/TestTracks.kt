@@ -60,13 +60,14 @@ internal object TestTracks {
         durationMs: Int = DEFAULT_DURATION_MS,
         artist: String = "Test Artist",
         album: String = "Test Album",
+        albumId: String? = null,
     ): Track = Track(
         uri = Uri.fromFile(file).toString(),
         title = title,
         artist = artist,
         album = album,
         durationMs = durationMs.toLong(),
-        albumId = null,
+        albumId = albumId,
         artworkUri = null,
         dateAdded = 0L,
     )

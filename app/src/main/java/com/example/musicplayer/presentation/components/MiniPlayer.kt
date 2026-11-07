@@ -20,6 +20,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -30,6 +31,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.musicplayer.presentation.player.PlaybackProgress
 import com.example.musicplayer.presentation.player.PlayerUiState
 import com.example.musicplayer.presentation.player.artistLabel
 
@@ -51,6 +53,8 @@ private val MiniPlayerHeight = 64.dp
  * @param onOpenNowPlaying Invoked when the panel body (not a control) is tapped.
  * @param onTogglePlayPause Toggles play/pause on the service player.
  * @param onNext Skips to the next queue item; only offered when [PlayerUiState.hasNext].
+ * @param progress Deferred playback position. It is read by the thin progress
+ *   line only, so position ticks never recompose the whole panel.
  */
 @Composable
 fun MiniPlayer(
@@ -59,6 +63,7 @@ fun MiniPlayer(
     onTogglePlayPause: () -> Unit,
     onNext: () -> Unit,
     modifier: Modifier = Modifier,
+    progress: () -> PlaybackProgress? = { null },
 ) {
     val colors = MaterialTheme.colorScheme
 
@@ -67,6 +72,8 @@ fun MiniPlayer(
             .fillMaxWidth()
             .background(colors.surfaceContainer),
     ) {
+        MiniPlayerProgress(progress = progress)
+
         HorizontalDivider(thickness = 1.dp, color = colors.outlineVariant)
 
         Row(
@@ -147,4 +154,31 @@ fun MiniPlayer(
             }
         }
     }
+}
+
+/**
+ * Thin playback progress line along the top edge of the panel.
+ *
+ * The deferred [progress] lambda is read here instead of in [MiniPlayer], so a
+ * position tick recomposes only this line.
+ */
+@Composable
+private fun MiniPlayerProgress(
+    progress: () -> PlaybackProgress?,
+    modifier: Modifier = Modifier,
+) {
+    val current = progress() ?: return
+    if (!current.isSeekable) return
+
+    LinearProgressIndicator(
+        progress = { current.fraction },
+        modifier = modifier
+            .fillMaxWidth()
+            .height(2.dp)
+            .semantics { contentDescription = "Playback progress" },
+        color = MaterialTheme.colorScheme.primary,
+        trackColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        gapSize = 0.dp,
+        drawStopIndicator = {},
+    )
 }

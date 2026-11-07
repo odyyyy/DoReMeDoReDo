@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -120,14 +119,23 @@ fun TrackItem(
         }
 
         if (isCurrent) {
-            Icon(
-                imageVector = if (isPlaying) Icons.Rounded.GraphicEq else Icons.Rounded.Pause,
-                contentDescription = if (isPlaying) "Playing" else "Paused",
-                tint = colors.primary,
-                modifier = Modifier
-                    .padding(end = 8.dp)
-                    .size(16.dp),
-            )
+            if (isPlaying) {
+                PlayingEqualizer(
+                    color = colors.primary,
+                    modifier = Modifier
+                        .padding(end = 8.dp)
+                        .size(16.dp),
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Rounded.Pause,
+                    contentDescription = "Paused",
+                    tint = colors.primary,
+                    modifier = Modifier
+                        .padding(end = 8.dp)
+                        .size(16.dp),
+                )
+            }
         }
 
         Text(

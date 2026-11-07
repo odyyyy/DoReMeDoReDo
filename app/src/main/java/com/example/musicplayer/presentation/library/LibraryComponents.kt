@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Album
@@ -17,10 +19,9 @@ import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Sort
+import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SortByAlpha
 import androidx.compose.material.icons.rounded.Timer
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalIconButton
@@ -28,6 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -38,8 +40,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.musicplayer.domain.model.TrackSort
 
 /**
@@ -80,24 +84,43 @@ fun LibraryTopBar(
 
         Spacer(modifier = Modifier.width(8.dp))
 
-        IconButton(onClick = onOpenQueue) {
-            BadgedBox(
-                badge = {
-                    if (queueSize > 0) {
-                        Badge(
-                            containerColor = colors.primary,
-                            contentColor = colors.onPrimary,
-                        ) {
-                            Text(queueSize.toString())
-                        }
-                    }
-                },
-            ) {
+        // The badge is a sibling of the IconButton instead of its content: the
+        // button clips its children to a circle, which cut off three-digit
+        // queue counts. Drawing the pill outside the button keeps any number
+        // (e.g. "305") fully visible.
+        Box {
+            IconButton(onClick = onOpenQueue) {
                 Icon(
                     imageVector = Icons.Rounded.QueueMusic,
-                    contentDescription = "Queue",
+                    contentDescription = if (queueSize > 0) {
+                        "Queue, $queueSize tracks"
+                    } else {
+                        "Queue"
+                    },
                     tint = colors.onSurface,
                 )
+            }
+
+            if (queueSize > 0) {
+                Surface(
+                    color = colors.primary,
+                    contentColor = colors.onPrimary,
+                    shape = RoundedCornerShape(50),
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 6.dp, y = (-2).dp),
+                ) {
+                    Text(
+                        text = queueSize.toString(),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 10.sp,
+                        lineHeight = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                    )
+                }
             }
         }
     }
@@ -226,4 +249,5 @@ internal fun TrackSort.icon(): ImageVector = when (this) {
     TrackSort.ALBUM -> Icons.Rounded.Album
     TrackSort.DURATION -> Icons.Rounded.Timer
     TrackSort.DATE_ADDED -> Icons.Rounded.CalendarToday
+    TrackSort.SHUFFLE -> Icons.Rounded.Shuffle
 }

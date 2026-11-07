@@ -16,3 +16,16 @@ data class Album(
     val trackCount: Int,
     val artworkUri: String?,
 )
+
+/**
+ * Stable album grouping key shared by the library and the playback surfaces.
+ *
+ * Uses the tagged album ID when the scanner produced one; otherwise falls back
+ * to the normalized album title and artist, matching [com.example.musicplayer.domain.usecase.groupTracksIntoAlbums].
+ * Keeping this in one place means a route built from the currently playing
+ * track resolves to the same album as a card in the Albums grid.
+ */
+fun albumGroupingKey(albumId: String?, album: String, artist: String): String {
+    if (!albumId.isNullOrBlank()) return albumId
+    return "${album.trim().lowercase()}|${artist.trim().lowercase()}"
+}

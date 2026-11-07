@@ -5,6 +5,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Pause
@@ -37,6 +40,7 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -46,6 +50,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -55,8 +66,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil3.compose.AsyncImage
 import com.example.musicplayer.player.PlaybackRepeatMode
 import com.example.musicplayer.presentation.components.ArtworkImage
+import com.example.musicplayer.presentation.components.extractAudioFormat
 import com.example.musicplayer.presentation.components.formatDuration
 import kotlin.math.abs
 
@@ -83,6 +96,7 @@ private const val SEEK_SETTLE_TOLERANCE_MS = 1_000L
 fun NowPlayingScreen(
     onBackClicked: () -> Unit,
     onOpenQueue: () -> Unit,
+    onOpenAlbum: (String) -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
@@ -95,6 +109,7 @@ fun NowPlayingScreen(
         progress = { progress.value },
         onBackClicked = onBackClicked,
         onOpenQueue = onOpenQueue,
+        onOpenAlbum = onOpenAlbum,
         onTogglePlayPause = viewModel::onTogglePlayPause,
         onNext = viewModel::onNext,
         onPrevious = viewModel::onPrevious,
@@ -125,135 +140,255 @@ fun NowPlayingContent(
     onCycleRepeatMode: () -> Unit,
     onSeekTo: (Long) -> Unit,
     modifier: Modifier = Modifier,
+    onOpenAlbum: (String) -> Unit = {},
 ) {
     val colors = MaterialTheme.colorScheme
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
-            .background(colors.background)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .background(colors.background),
     ) {
-        NowPlayingHeader(onBackClicked = onBackClicked)
+        NowPlayingBackground(state = state)
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        if (state == null) {
-            EmptyPlayerContent()
-            return@Column
-        }
-
-        // The artwork takes whatever vertical space is left, so a short window
-        // shrinks the image instead of pushing the controls off screen.
-        Box(
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            contentAlignment = Alignment.Center,
+                .fillMaxSize()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
-            ArtworkImage(
-                artworkUri = state.artworkUri,
-                title = state.title,
+            NowPlayingHeader(onBackClicked = onBackClicked)
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (state == null) {
+                EmptyPlayerContent()
+                return@Column
+            }
+
+            val format = remember(state.trackUri, state.title) {
+                extractAudioFormat(state.trackUri, state.title)
+            }
+
+            // The artwork takes whatever vertical space is left, so a short
+            // window shrinks the image instead of pushing controls off screen.
+            // Horizontal swipes switch tracks, and a tap opens the album.
+            val swipeThresholdPx = with(LocalDensity.current) { 64.dp.toPx() }
+            var dragOffset by remember(state.trackUri) { mutableStateOf(0f) }
+            Box(
                 modifier = Modifier
-                    .fillMaxHeight()
-                    .aspectRatio(1f),
-                cornerRadius = 14.dp,
-                textStyle = MaterialTheme.typography.displayMedium,
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .pointerInput(state.trackUri) {
+                        detectHorizontalDragGestures(
+                            onDragCancel = { dragOffset = 0f },
+                            onDragEnd = {
+                                val offset = dragOffset
+                                dragOffset = 0f
+                                when {
+                                    offset <= -swipeThresholdPx -> onNext()
+                                    offset >= swipeThresholdPx -> onPrevious()
+                                }
+                            },
+                            onHorizontalDrag = { change, dragAmount ->
+                                change.consume()
+                                dragOffset = (dragOffset + dragAmount)
+                                    .coerceIn(-swipeThresholdPx * 2, swipeThresholdPx * 2)
+                            },
+                        )
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                ArtworkImage(
+                    artworkUri = state.artworkUri,
+                    title = state.title,
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .aspectRatio(1f)
+                        .graphicsLayer { translationX = dragOffset }
+                        .clickable(
+                            onClickLabel = "Open album",
+                            onClick = { onOpenAlbum(state.albumGroupingKey) },
+                        ),
+                    cornerRadius = 14.dp,
+                    textStyle = MaterialTheme.typography.displayMedium,
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = state.title,
+                            style = MaterialTheme.typography.titleLarge,
+                            color = colors.onSurface,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        TrackFormatBadge(format = format)
+                    }
+
+                    Text(
+                        text = state.artistLabel(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+
+                    Text(
+                        text = state.albumLabel(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.clickable(
+                            onClickLabel = "Open album",
+                            onClick = { onOpenAlbum(state.albumGroupingKey) },
+                        ),
+                    )
+                }
+
+                // Buffering is a silent indicator, never a caption that would
+                // stay on screen after the user moves elsewhere in the track.
+                if (state.isBuffering) {
+                    CircularProgressIndicator(
+                        modifier = Modifier
+                            .size(18.dp)
+                            .semantics { contentDescription = "Buffering" },
+                        strokeWidth = 2.dp,
+                        color = colors.primary,
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            SeekBar(
+                progress = progress,
+                onSeekTo = onSeekTo,
             )
-        }
 
-        Spacer(modifier = Modifier.height(14.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
+            if (state.errorMessage != null) {
                 Text(
-                    text = state.title,
-                    style = MaterialTheme.typography.titleLarge,
-                    color = colors.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+                    text = state.errorMessage,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.error,
                 )
-
+            } else if (state.hasEnded) {
                 Text(
-                    text = state.artistLabel(),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = colors.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-
-                Text(
-                    text = state.albumLabel(),
+                    text = "Playback finished",
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
             }
 
-            // Buffering is shown as a silent indicator, never as a caption that
-            // would stay on screen after the user moves elsewhere in the track.
-            if (state.isBuffering) {
-                CircularProgressIndicator(
-                    modifier = Modifier
-                        .size(18.dp)
-                        .semantics { contentDescription = "Buffering" },
-                    strokeWidth = 2.dp,
-                    color = colors.primary,
-                )
-            }
-        }
+            Spacer(modifier = Modifier.height(10.dp))
 
-        Spacer(modifier = Modifier.height(4.dp))
-
-        SeekBar(
-            progress = progress,
-            onSeekTo = onSeekTo,
-        )
-
-        if (state.errorMessage != null) {
-            Text(
-                text = state.errorMessage,
-                style = MaterialTheme.typography.bodySmall,
-                color = colors.error,
+            TransportControls(
+                state = state,
+                onTogglePlayPause = onTogglePlayPause,
+                onNext = onNext,
+                onPrevious = onPrevious,
+                onToggleShuffle = onToggleShuffle,
+                onCycleRepeatMode = onCycleRepeatMode,
             )
-        } else if (state.hasEnded) {
-            Text(
-                text = "Playback finished",
-                style = MaterialTheme.typography.bodySmall,
-                color = colors.onSurfaceVariant,
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                FilledTonalIconButton(onClick = onOpenQueue) {
+                    Icon(
+                        imageVector = Icons.Rounded.QueueMusic,
+                        contentDescription = "Queue",
+                        tint = colors.primary,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Ambient background derived from the current cover.
+ *
+ * The artwork is drawn blurred behind the whole screen, with a background
+ * gradient on top so metadata and controls keep their contrast. On Android
+ * versions where [blur] has no effect the partial alpha and the scrim still
+ * leave a soft colour wash instead of a distracting sharp image.
+ */
+@Composable
+private fun NowPlayingBackground(
+    state: PlayerUiState?,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MaterialTheme.colorScheme
+    val artworkUri = state?.artworkUri
+
+    Box(modifier = modifier.fillMaxSize()) {
+        if (!artworkUri.isNullOrBlank()) {
+            AsyncImage(
+                model = artworkUri,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .blur(64.dp)
+                    .alpha(0.75f),
             )
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
-
-        TransportControls(
-            state = state,
-            onTogglePlayPause = onTogglePlayPause,
-            onNext = onNext,
-            onPrevious = onPrevious,
-            onToggleShuffle = onToggleShuffle,
-            onCycleRepeatMode = onCycleRepeatMode,
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0f to colors.background.copy(alpha = 0.35f),
+                            0.55f to colors.background.copy(alpha = 0.75f),
+                            1f to colors.background,
+                        ),
+                    ),
+                ),
         )
+    }
+}
 
-        Spacer(modifier = Modifier.height(10.dp))
+/** Small format pill (MP3, FLAC, OGG ...) shown next to the album line. */
+@Composable
+private fun TrackFormatBadge(
+    format: String,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MaterialTheme.colorScheme
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            FilledTonalIconButton(onClick = onOpenQueue) {
-                Icon(
-                    imageVector = Icons.Rounded.QueueMusic,
-                    contentDescription = "Queue",
-                    tint = colors.primary,
-                )
-            }
-        }
+    Surface(
+        color = colors.primary.copy(alpha = 0.12f),
+        shape = RoundedCornerShape(4.dp),
+        modifier = modifier,
+    ) {
+        Text(
+            text = format,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = colors.primary,
+            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+        )
     }
 }
 

@@ -143,6 +143,13 @@ class LibraryViewModel @Inject constructor(
 
     private val _trackSort = MutableStateFlow(TrackSort.TITLE)
 
+    /**
+     * Seed for the random Shuffle sort. It advances whenever the user picks
+     * Shuffle in the sort menu, so choosing the same option again produces a new
+     * random order instead of being a no-op.
+     */
+    private val _shuffleSeed = MutableStateFlow(0L)
+
     private var tracksJob: Job? = null
 
     init {
@@ -196,6 +203,7 @@ class LibraryViewModel @Inject constructor(
                 tracks = domainTracks,
                 searchQuery = _searchQuery,
                 sort = _trackSort,
+                shuffleSeed = _shuffleSeed,
             ).collect { state ->
                 _tracksUiState.value = state
             }
@@ -207,6 +215,10 @@ class LibraryViewModel @Inject constructor(
     }
 
     fun onSortChange(sort: TrackSort) {
+        // Re-selecting Shuffle must produce a new random order.
+        if (sort == TrackSort.SHUFFLE) {
+            _shuffleSeed.value += 1
+        }
         _trackSort.value = sort
     }
 

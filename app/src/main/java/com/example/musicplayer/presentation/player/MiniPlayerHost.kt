@@ -24,6 +24,7 @@ fun MiniPlayerHost(
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val progress = viewModel.progress.collectAsStateWithLifecycle()
     val miniPlayerState = state ?: return
 
     MiniPlayer(
@@ -32,5 +33,7 @@ fun MiniPlayerHost(
         onTogglePlayPause = viewModel::onTogglePlayPause,
         onNext = viewModel::onNext,
         modifier = modifier,
+        // Deferred read: only the thin progress line recomposes per tick.
+        progress = { progress.value },
     )
 }

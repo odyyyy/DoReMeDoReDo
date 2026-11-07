@@ -11,6 +11,9 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeRight
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.musicplayer.player.PlaybackRepeatMode
 import com.example.musicplayer.ui.theme.DoReMeDoReDoTheme
@@ -43,6 +46,7 @@ class NowPlayingContentTest {
     private var shuffleCount = 0
     private var repeatCount = 0
     private var seekedTo: Long? = null
+    private var openedAlbum: String? = null
 
     private fun setContent(
         state: PlayerUiState?,
@@ -61,6 +65,7 @@ class NowPlayingContentTest {
                     onToggleShuffle = { shuffleCount++ },
                     onCycleRepeatMode = { repeatCount++ },
                     onSeekTo = { seekedTo = it },
+                    onOpenAlbum = { openedAlbum = it },
                 )
             }
         }
@@ -185,6 +190,33 @@ class NowPlayingContentTest {
         composeRule.onNodeWithText("Playback finished").assertIsDisplayed()
     }
 
+    @Test
+    fun showsTheAudioFormatBadge() {
+        setContent(state(trackUri = "file:///music/song.flac"))
+
+        composeRule.onNodeWithText("FLAC").assertIsDisplayed()
+    }
+
+    @Test
+    fun tappingTheAlbumOpensItsAlbumScreen() {
+        setContent(state(albumId = "album-42"))
+
+        composeRule.onNodeWithText("Album").performClick()
+
+        assertEquals("album-42", openedAlbum)
+    }
+
+    @Test
+    fun swipingTheArtworkChangesTrack() {
+        setContent(state())
+
+        composeRule.onNodeWithText("S").performTouchInput { swipeLeft() }
+        composeRule.onNodeWithText("S").performTouchInput { swipeRight() }
+
+        assertEquals(1, nextCount)
+        assertEquals(1, previousCount)
+    }
+
     private fun state(
         isPlaying: Boolean = false,
         isBuffering: Boolean = false,
@@ -193,8 +225,10 @@ class NowPlayingContentTest {
         repeatMode: PlaybackRepeatMode = PlaybackRepeatMode.OFF,
         hasEnded: Boolean = false,
         errorMessage: String? = null,
+        trackUri: String = "content://music/track-1",
+        albumId: String? = null,
     ) = PlayerUiState(
-        trackUri = "content://music/track-1",
+        trackUri = trackUri,
         title = "Song",
         artist = "Artist",
         album = "Album",
@@ -207,6 +241,7 @@ class NowPlayingContentTest {
         repeatMode = repeatMode,
         hasEnded = hasEnded,
         errorMessage = errorMessage,
+        albumId = albumId,
     )
 
     private fun progressState(

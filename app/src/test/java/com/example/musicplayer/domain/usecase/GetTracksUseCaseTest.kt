@@ -3,6 +3,7 @@ package com.example.musicplayer.domain.usecase
 import com.example.musicplayer.domain.model.Track
 import com.example.musicplayer.domain.model.TrackSort
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -126,5 +127,26 @@ class GetTracksUseCaseTest {
         val result = filterAndSortTracks(library, "artist", TrackSort.DURATION)
         assertEquals(listOf(100L, 200L, 300L), result.map { it.durationMs })
         assertEquals(3, result.size)
+    }
+
+    @Test
+    fun `shuffle sort keeps every track and is stable for one seed`() {
+        val first = filterAndSortTracks(library, "", TrackSort.SHUFFLE, shuffleSeed = 7L)
+        val second = filterAndSortTracks(library, "", TrackSort.SHUFFLE, shuffleSeed = 7L)
+
+        assertEquals(library.map { it.uri }.toSet(), first.map { it.uri }.toSet())
+        assertEquals(first.map { it.uri }, second.map { it.uri })
+    }
+
+    @Test
+    fun `shuffle sort changes order when the seed advances`() {
+        val tracks = (1..16).map { index ->
+            track("uri://$index", "Track $index")
+        }
+        val first = filterAndSortTracks(tracks, "", TrackSort.SHUFFLE, shuffleSeed = 1L)
+        val second = filterAndSortTracks(tracks, "", TrackSort.SHUFFLE, shuffleSeed = 2L)
+
+        assertEquals(tracks.map { it.uri }.toSet(), first.map { it.uri }.toSet())
+        assertNotEquals(first.map { it.uri }, second.map { it.uri })
     }
 }

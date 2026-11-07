@@ -34,6 +34,30 @@ class QueueViewModel @Inject constructor(
             initialValue = PlaybackQueue(),
         )
 
+    /** True while the player is actively playing the current queue item. */
+    val isPlaying: StateFlow<Boolean> = playerController.state
+        .map { it.isPlaying }
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = false,
+        )
+
+    /**
+     * True while Media3 shuffle mode is on. The queue is then displayed in
+     * shuffled traversal order, where drag reordering has no unambiguous
+     * target, so the screen disables reordering in that state.
+     */
+    val shuffleModeEnabled: StateFlow<Boolean> = playerController.state
+        .map { it.shuffleModeEnabled }
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = false,
+        )
+
     /** Jumps playback to the queue item at [index]. */
     fun onSelect(index: Int) {
         playerController.seekToQueueItem(index)

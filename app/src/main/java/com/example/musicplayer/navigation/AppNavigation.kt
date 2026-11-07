@@ -1,5 +1,10 @@
 package com.example.musicplayer.navigation
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -93,6 +98,25 @@ fun AppNavigation(
             navController = navController,
             startDestination = Routes.TRACKS,
             modifier = Modifier.padding(innerPadding),
+            // Pushed screens slide in from the right; going back slides the
+            // current screen out to the right and brings the previous one in
+            // from the left, so Back reads as a reversal of the forward motion.
+            enterTransition = {
+                slideInHorizontally(animationSpec = tween(NAVIGATION_ANIMATION_MS)) { it } +
+                    fadeIn(animationSpec = tween(NAVIGATION_FADE_MS))
+            },
+            exitTransition = {
+                slideOutHorizontally(animationSpec = tween(NAVIGATION_ANIMATION_MS)) { -it / 3 } +
+                    fadeOut(animationSpec = tween(NAVIGATION_FADE_MS))
+            },
+            popEnterTransition = {
+                slideInHorizontally(animationSpec = tween(NAVIGATION_ANIMATION_MS)) { -it / 3 } +
+                    fadeIn(animationSpec = tween(NAVIGATION_FADE_MS))
+            },
+            popExitTransition = {
+                slideOutHorizontally(animationSpec = tween(NAVIGATION_ANIMATION_MS)) { it } +
+                    fadeOut(animationSpec = tween(NAVIGATION_FADE_MS))
+            },
         ) {
             composable(Routes.TRACKS) {
                 TracksScreen(
@@ -128,6 +152,9 @@ fun AppNavigation(
                 NowPlayingScreen(
                     onBackClicked = { navController.popBackStack() },
                     onOpenQueue = { navController.navigate(Routes.QUEUE) },
+                    onOpenAlbum = { albumKey ->
+                        navController.navigate(Routes.albumDetail(albumKey))
+                    },
                 )
             }
 
@@ -153,3 +180,9 @@ private fun NavHostController.navigateToTab(destination: TopLevelDestination) {
         restoreState = true
     }
 }
+
+/** Duration of the horizontal screen slide used for push and back navigation. */
+private const val NAVIGATION_ANIMATION_MS = 260
+
+/** Duration of the cross-fade layered on top of the slide. */
+private const val NAVIGATION_FADE_MS = 170

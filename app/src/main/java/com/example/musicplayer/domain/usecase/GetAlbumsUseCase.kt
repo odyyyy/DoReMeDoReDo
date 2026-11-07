@@ -2,6 +2,7 @@ package com.example.musicplayer.domain.usecase
 
 import com.example.musicplayer.domain.model.Album
 import com.example.musicplayer.domain.model.Track
+import com.example.musicplayer.domain.model.albumGroupingKey
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
@@ -52,9 +53,4 @@ fun groupTracksIntoAlbums(tracks: List<Track>): List<Album> {
 }
 
 /** Determines the stable grouping key for a track. */
-fun Track.getAlbumGroupingKey(): String {
-    if (!albumId.isNullOrBlank()) return albumId
-    val normTitle = album.trim().lowercase()
-    val normArtist = artist.trim().lowercase()
-    return "$normTitle|$normArtist"
-}
+fun Track.getAlbumGroupingKey(): String = albumGroupingKey(albumId, album, artist)
