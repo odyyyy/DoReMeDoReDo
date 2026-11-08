@@ -5,6 +5,8 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.Column
@@ -102,13 +104,41 @@ fun AppNavigation(
             modifier = Modifier.padding(innerPadding),
             // Pushed screens slide in from the right while the screen below
             // shifts slightly left, so opening a screen reads as forward motion.
+            // Top-level tab switches are lateral moves instead: they cross-fade
+            // with a subtle scale so Tracks, Albums and Settings feel like one
+            // surface changing content rather than a stack of pushed screens.
             enterTransition = {
-                slideInHorizontally(animationSpec = tween(NAVIGATION_ANIMATION_MS)) { it } +
+                if (isTabSwitch(
+                        initialState.destination.route,
+                        targetState.destination.route,
+                    )
+                ) {
+                    fadeIn(animationSpec = tween(TAB_ENTER_ANIMATION_MS)) +
+                        scaleIn(
+                            animationSpec = tween(TAB_ENTER_ANIMATION_MS),
+                            initialScale = TAB_INITIAL_SCALE,
+                        )
+                } else {
+                    slideInHorizontally(animationSpec = tween(NAVIGATION_ANIMATION_MS)) { it } +
                         fadeIn(animationSpec = tween(NAVIGATION_FADE_MS))
+                }
             },
             exitTransition = {
-                slideOutHorizontally(animationSpec = tween(NAVIGATION_ANIMATION_MS)) { -it / 3 } +
-                        fadeOut(animationSpec = tween(NAVIGATION_FADE_MS))
+                if (isTabSwitch(
+                        initialState.destination.route,
+                        targetState.destination.route,
+                    )
+                ) {
+                    fadeOut(animationSpec = tween(TAB_EXIT_ANIMATION_MS)) +
+                        scaleOut(
+                            animationSpec = tween(TAB_EXIT_ANIMATION_MS),
+                            targetScale = TAB_TARGET_SCALE,
+                        )
+                } else {
+                    slideOutHorizontally(animationSpec = tween(NAVIGATION_ANIMATION_MS)) {
+                        -it / 3
+                    } + fadeOut(animationSpec = tween(NAVIGATION_FADE_MS))
+                }
             },
             // Back returns to the previous screen immediately, with no
             // transition, so the system Back button and gesture feel instant.
@@ -178,8 +208,29 @@ private fun NavHostController.navigateToTab(destination: TopLevelDestination) {
     }
 }
 
+/**
+ * True when both destinations are bottom-navigation tabs, i.e. the navigation
+ * is a lateral tab switch rather than opening a detail screen.
+ */
+private fun isTabSwitch(initialRoute: String?, targetRoute: String?): Boolean {
+    val tabs = TopLevelDestination.entries
+    return tabs.any { it.route == initialRoute } && tabs.any { it.route == targetRoute }
+}
+
 /** Duration of the horizontal screen slide used for push navigation. */
 private const val NAVIGATION_ANIMATION_MS = 260
 
 /** Duration of the cross-fade layered on top of the push slide. */
 private const val NAVIGATION_FADE_MS = 170
+
+/** Incoming tab fade/scale duration. */
+private const val TAB_ENTER_ANIMATION_MS = 220
+
+/** Outgoing tab fades out faster so the new tab becomes readable sooner. */
+private const val TAB_EXIT_ANIMATION_MS = 120
+
+/** Incoming tab starts slightly smaller and settles to full size. */
+private const val TAB_INITIAL_SCALE = 0.97f
+
+/** Outgoing tab drifts slightly larger as it fades away. */
+private const val TAB_TARGET_SCALE = 1.02f

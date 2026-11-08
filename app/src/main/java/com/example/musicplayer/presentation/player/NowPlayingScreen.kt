@@ -345,6 +345,17 @@ private fun NowPlayingBackground(
 ) {
     val colors = MaterialTheme.colorScheme
     val artworkUri = state?.artworkUri
+    // Rebuilt only when the surface colour changes; the gradient used to be
+    // allocated on every recomposition of this background.
+    val scrimBrush = remember(colors.background) {
+        Brush.verticalGradient(
+            colorStops = arrayOf(
+                0f to colors.background.copy(alpha = 0.35f),
+                0.55f to colors.background.copy(alpha = 0.75f),
+                1f to colors.background,
+            ),
+        )
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
         if (!artworkUri.isNullOrBlank()) {
@@ -362,15 +373,7 @@ private fun NowPlayingBackground(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colorStops = arrayOf(
-                            0f to colors.background.copy(alpha = 0.35f),
-                            0.55f to colors.background.copy(alpha = 0.75f),
-                            1f to colors.background,
-                        ),
-                    ),
-                ),
+                .background(scrimBrush),
         )
     }
 }
@@ -493,19 +496,40 @@ private fun SeekBar(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text(
-                text = formatDuration(positionForFraction(fraction, durationMs)),
-                style = MaterialTheme.typography.labelMedium,
-                color = colors.onSurfaceVariant,
-            )
+            // Whole seconds keep the label's arguments unchanged between
+            // animation frames, so Compose skips it and no string is formatted
+            // at 60 fps.
+            ElapsedTime(seconds = positionForFraction(fraction, durationMs) / 1_000L)
+
+            val totalLabel = remember(durationMs) { formatDuration(durationMs) }
 
             Text(
-                text = formatDuration(durationMs),
+                text = totalLabel,
                 style = MaterialTheme.typography.labelMedium,
                 color = colors.onSurfaceVariant,
             )
         }
     }
+}
+
+/**
+ * Elapsed playback time.
+ *
+ * Takes the already-truncated whole [seconds] rather than a fractional
+ * position, so frames within the same second pass an equal argument and
+ * Compose skips this composable (and its string formatting).
+ */
+@Composable
+private fun ElapsedTime(
+    seconds: Long,
+    modifier: Modifier = Modifier,
+) {
+    Text(
+        text = formatDuration(seconds * 1_000L),
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier,
+    )
 }
 
 @Composable

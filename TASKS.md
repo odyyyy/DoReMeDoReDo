@@ -957,6 +957,150 @@ Validate the app with large music libraries and target Android versions, fix cri
 
 ---
 
+## Task 21 — Performance audit of playback and UI hot paths
+
+**Status:** DONE  
+**Priority:** High  
+**Depends on:** Tasks 12, 15, 16, 17, and 19
+
+### Goal
+
+Audit the application for avoidable main-thread work, redundant recomposition and
+allocation, and startup cost, then apply targeted, low-risk fixes without
+changing behaviour or adding dependencies.
+
+### Audit findings
+
+- [x] Audited playback: `PlayerController`, `PlaybackService`, `PlaybackState`,
+  `PlaybackQueue`, `PlayerViewModel`.
+- [x] Audited UI: `MainActivity`, library/album/queue/Now Playing screens, list
+  rows, artwork components, Mini Player.
+- [x] Audited data layer: Room queries, `ScanCoordinator`, `MetadataExtractor`,
+  artwork storage and Coil configuration.
+- [x] Confirmed existing good patterns: deferred `PlaybackProgress` lambda,
+  `distinctUntilChanged` projections, shared `domainTracks`, stable list keys,
+  remembered row lambdas/shapes, bounded artwork variants, Coil memory cache.
+- [x] Found the main hot-path defects listed under **Changes**.
+
+### Changes
+
+- `PlayerController.onEvents` no longer rebuilds the queue projection for every
+  player event. Only `EVENT_TIMELINE_CHANGED`, `EVENT_MEDIA_ITEM_TRANSITION`,
+  and `EVENT_SHUFFLE_MODE_ENABLED_CHANGED` can change the projection; buffering,
+  play/pause, errors and other frequent events now reuse the cached list instead
+  of allocating and mapping the whole queue on the main thread.
+- `PlayerController.publish` keeps an O(1) safety net
+  (`cachedQueue.items.size != player.mediaItemCount`) so a coalesced playlist
+  event still cannot leave a stale queue.
+- `MainActivity` posts `playerController.connect()` to the decor view instead of
+  binding the service synchronously during `onCreate` (creating ExoPlayer,
+  renderers and the MediaSession), keeping that work off the initial
+  composition path. Commands issued before connection are still queued and
+  replayed.
+- `NowPlayingScreen` remembers the ambient background gradient `Brush` instead
+  of allocating it on every recomposition, remembers the formatted total
+  duration, and derives the elapsed label from whole seconds through a small
+  skippable `ElapsedTime` composable, so the label is not re-formatted on every
+  60 fps animation frame.
+- `AlbumScreen` and `QueueScreen` now declare a `contentType`, letting Compose
+  reuse row compositions by slot. The queue intentionally keeps no item key
+  because the same track URI may legitimately appear more than once; adding a
+  URI key would crash on duplicates.
+
+### Validation performed
+
+- `./gradlew testDebugUnitTest assembleDebug` -> BUILD SUCCESSFUL; 104 unit
+  tests across 18 suites, 0 failures.
+- `./gradlew assembleDebugAndroidTest` -> BUILD SUCCESSFUL.
+- `./gradlew connectedDebugAndroidTest` scoped to
+  `com.example.musicplayer.player.PlayerControllerInstrumentedTest` on the
+  connected Infinix X6850 (Android 16) -> 8 tests, 0 failures, including queue
+  projection, shuffled queue order, queue management, selecting a queue item,
+  shuffle/repeat, and unreadable-URI recovery.
+
+### Not implemented (recommendations)
+
+- **Baseline/startup profile:** the biggest remaining cold-start win, but it
+  requires an `androidx.baselineprofile` module and macrobenchmark setup, which
+  conflicts with the project's single-`app`-module rule.
+- **Parallel metadata extraction:** addressed in Task 22 with two bounded
+  workers plus a per-batch artwork cache. Batching `DocumentsContract` child
+  queries remains the next traversal improvement.
+- **Position polling:** the 500 ms loop still wakes while paused (it publishes
+  only while playing). It could be started/stopped on `isPlaying` changes.
+- **ViewModel duplication:** each destination creates its own `PlayerViewModel`
+  and maps `PlayerController.state` independently; one activity-scoped instance
+  would remove the duplicate projections.
+- **Search debounce:** album filtering runs on `Dispatchers.Default` per
+  keystroke; a short debounce would reduce work on very large libraries.
+- **FPS profiling:** no frame trace was captured in this pass. The available
+  emulators use software rendering, and the connected physical device was used
+  for correctness tests only; a physical-device Macrobenchmark/profile remains
+  recommended.
+
+---
+
+## Task 22 — Accelerate folder scanning and smooth tab transitions
+
+**Status:** DONE  
+**Priority:** High (scan time) / Medium (motion)  
+**Depends on:** Tasks 06, 09, 19, and 21
+
+### Goal
+
+Cut avoidable work in the scan pipeline and replace the lateral push animation
+used for bottom-tab switches with a calm, content-focused transition.
+
+### Changes
+
+- Added `ArtworkVariantCache`, a per-batch bounded LRU cache of decoded artwork
+  variants. Albums that embed the same cover and folders that share one
+  `cover.jpg` now decode and JPEG-encode that image once per scan instead of
+  once per track. Embedded pictures are keyed by a SHA-256 digest of the raw
+  picture; folder covers are keyed by document URI. Missing folder artwork is
+  cached as empty so an unreadable cover is not reopened for every track.
+- `MetadataExtractor.extractAll` now reads files with a small bounded
+  concurrency (two workers). Metadata reads are dominated by SAF and
+  `MediaMetadataRetriever` latency, so overlapping them shortens scans while the
+  low worker count keeps peak memory from several decoded 2048 px covers in
+  check. Results are still returned in input order, and cancellation is
+  rethrown instead of becoming a per-file failure.
+- `ScanCoordinator` remembers the stored URI for each cached artwork byte array
+  in an `IdentityHashMap`, so the content hash, file-existence check and IO
+  hop are not repeated for every track that shares a cover.
+- Bottom-tab changes (`Albums` to `Tracks`, `Settings` to `Tracks`, and the
+  reverse directions) now use a fade plus subtle scale instead of the horizontal
+  push slide. The outgoing tab fades in 120 ms and the incoming tab settles from
+  97 % over 220 ms. Detail screens (`Album`, `Queue`, `Now Playing`) keep the
+  existing slide, and Back still has no transition.
+
+### Validation performed
+
+- `./gradlew testDebugUnitTest assembleDebug` -> BUILD SUCCESSFUL; 109 unit
+  tests across 19 suites, 0 failures, including 5 new `ArtworkVariantCacheTest`
+  cases (hit/miss, LRU order, entry and byte budget, shared thumbnail/full
+  bytes).
+- Instrumented run on the connected Infinix X6850 (Android 16):
+  `MetadataExtractorInstrumentedTest` (4 tests) and `ScanCoordinatorTest`
+  (19 tests) -> 23 tests, 0 failures.
+
+### Limitations
+
+- No before/after wall-clock scan benchmark was captured in this pass. The
+  changes remove repeated decode/encode and overlap provider latency, but the
+  actual speed-up depends on how many tracks share cover art; a rescan of the
+  368-track test library should be timed on a device.
+- Discovery still reads several properties per document through `DocumentFile`,
+  which issues one provider query per property. A batched
+  `DocumentsContract` child cursor is the next significant traversal win.
+- The scan UI still reports only "Scanning folder…", without per-file progress.
+- Two extraction workers were chosen conservatively for memory safety; larger
+  fan-out was not benchmarked.
+- The tab animation was compiled and the app builds, but no frame trace or
+  screen recording was captured in this pass.
+
+---
+
 Fixes:
 DONE: When shuffle mode is enabled, it also displays shuffled tracks in the queue.
 
@@ -983,6 +1127,11 @@ DONE: show a full-resolution album cover on the playback screen. Artwork is now 
 DONE: change the animation of going back (by pressing the back button on the smartphone). Back navigation now has no transition at all: both `popEnterTransition` and `popExitTransition` are set to `EnterTransition.None` / `ExitTransition.None`. The app also sets `android:enableOnBackInvokedCallback="false"` in the manifest, because Android 16 scales the app window down as a predictive-back system animation before the previous destination appears; disabling it makes Back swap screens instantly. Forward navigation keeps its existing slide. Validated with `assembleDebug`.
 
 DONE: fix low fps performance when scrolling through the track list quickly on the "all tracks" tab when the number of tracks reaches 300+. Track mapping/filtering/album grouping and the SAF permission check now run off the main thread; the per-row artwork placeholder overdraw was removed; list rows use stable keys, a shared `contentType`, remembered shapes/lambdas, and only the current row observes playback state. The 10,000-track performance test stays far below its 3,000 ms per-step budget on API 26 and API 37. Real-device FPS could not be measured because the available emulators use software rendering, so a physical-device spot-check is still recommended (documented in `RELEASE_CHECKLIST.md`).
+
+## Can be improved
+- Crossfade	Плавное затухание одного трека и начало другого
+- ReplayGain	Автоматическое выравнивание громкости композиций
+- 
 
 
 ## Execution rules

@@ -8,8 +8,12 @@ import android.net.Uri
 import com.example.musicplayer.domain.model.DiscoveredAudioFile
 import com.example.musicplayer.domain.model.TrackMetadata
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.security.MessageDigest
@@ -40,9 +44,43 @@ class MetadataExtractor @Inject constructor(
      * Reads metadata for every file off the main thread, in input order.
      *
      * A failure for one file does not stop extraction for the others.
+     *
+     * Files are read with a small bounded concurrency (see
+     * [SCAN_EXTRACTION_PARALLELISM]) because each read is dominated by
+     * `MediaMetadataRetriever` and SAF I/O rather than CPU on the caller. The
+     * concurrency is deliberately low: one worker may hold a decoded
+     * full-resolution cover while the next one is decoding its own, and a
+     * larger fan-out would multiply that peak memory for little extra
+     * throughput on shared storage.
      */
-    override suspend fun extractAll(files: List<DiscoveredAudioFile>): List<MetadataResult> =
-        withContext(ioDispatcher) { extractAllBlocking(files) { MediaMetadataRetriever() } }
+    override suspend fun extractAll(files: List<DiscoveredAudioFile>): List<MetadataResult> {
+        if (files.isEmpty()) return emptyList()
+
+        if (files.size == 1) {
+            return withContext(ioDispatcher) {
+                extractAllBlocking(files) { MediaMetadataRetriever() }
+            }
+        }
+
+        // One cache per batch: a folder cover or an album's embedded picture is
+        // decoded once and reused by the remaining tracks.
+        val cache = ArtworkVariantCache()
+        val dispatcher = ioDispatcher.limitedParallelism(
+            parallelism = minOf(SCAN_EXTRACTION_PARALLELISM, files.size),
+        )
+
+        return coroutineScope {
+            files.map { file ->
+                async(dispatcher) {
+                    extractBlocking(
+                        file = file,
+                        createRetriever = { MediaMetadataRetriever() },
+                        artworkCache = cache,
+                    )
+                }
+            }.awaitAll()
+        }
+    }
 
     /**
      * Blocking variant of [extract], exposed for tests and for callers that
@@ -53,6 +91,7 @@ class MetadataExtractor @Inject constructor(
      */
     internal fun extractBlocking(
         file: DiscoveredAudioFile,
+        artworkCache: ArtworkVariantCache? = null,
         createRetriever: () -> MediaMetadataRetriever,
     ): MetadataResult {
         var retriever: MediaMetadataRetriever? = null
@@ -61,8 +100,14 @@ class MetadataExtractor @Inject constructor(
             retriever.setDataSource(context, file.uri)
             MetadataResult.Success(
                 file = file,
-                metadata = readMetadata(file = file, retriever = retriever),
+                metadata = readMetadata(
+                    file = file,
+                    retriever = retriever,
+                    artworkCache = artworkCache,
+                ),
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             MetadataResult.Failure(
                 file = file,
@@ -82,14 +127,20 @@ class MetadataExtractor @Inject constructor(
      */
     internal fun extractAllBlocking(
         files: List<DiscoveredAudioFile>,
+        artworkCache: ArtworkVariantCache? = null,
         createRetriever: () -> MediaMetadataRetriever,
     ): List<MetadataResult> = files.map { file ->
-        extractBlocking(file) { createRetriever() }
+        extractBlocking(
+            file = file,
+            artworkCache = artworkCache,
+            createRetriever = createRetriever,
+        )
     }
 
     private fun readMetadata(
         file: DiscoveredAudioFile,
         retriever: MediaMetadataRetriever,
+        artworkCache: ArtworkVariantCache?,
     ): TrackMetadata {
         val rawTitle = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
         val rawArtist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
@@ -101,7 +152,11 @@ class MetadataExtractor @Inject constructor(
         val rawDiscNumber =
             retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DISC_NUMBER)
 
-        val artwork = readArtwork(retriever = retriever, file = file)
+        val artwork = readArtwork(
+            retriever = retriever,
+            file = file,
+            artworkCache = artworkCache,
+        )
         return buildMetadata(
             fileName = file.name,
             rawTitle = rawTitle,
@@ -126,6 +181,7 @@ class MetadataExtractor @Inject constructor(
     private fun readArtwork(
         retriever: MediaMetadataRetriever,
         file: DiscoveredAudioFile,
+        artworkCache: ArtworkVariantCache?,
     ): ArtworkVariants {
         val embedded = try {
             retriever.embeddedPicture
@@ -134,18 +190,76 @@ class MetadataExtractor @Inject constructor(
         }
 
         if (embedded != null) {
-            val variants = try {
-                extractArtworkVariants(embedded)
-            } catch (_: Exception) {
-                null
-            }
+            val variants = decodeEmbeddedArtwork(embedded, artworkCache)
             // A corrupt embedded picture falls through to a folder cover instead
             // of hiding artwork the folder may still provide.
             if (variants?.thumbnail != null) return variants
         }
 
-        return readArtworkFileVariants(file.artworkFileUri)
-            ?: ArtworkVariants(thumbnail = null, full = null)
+        val artworkUri = file.artworkFileUri ?: return EMPTY_ARTWORK
+        return readFolderArtwork(artworkUri, artworkCache) ?: EMPTY_ARTWORK
+    }
+
+    /**
+     * Decodes an embedded picture, reusing a previous decode when another track
+     * in the same batch embeds byte-identical artwork.
+     */
+    private fun decodeEmbeddedArtwork(
+        embedded: ByteArray,
+        artworkCache: ArtworkVariantCache?,
+    ): ArtworkVariants? {
+        if (artworkCache == null) {
+            return try {
+                extractArtworkVariants(embedded)
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+        val key = embeddedArtworkKey(embedded)
+        artworkCache.get(key)?.let { return it }
+
+        return try {
+            extractArtworkVariants(embedded).also { variants ->
+                // Cache only successfully decoded artwork: a corrupt picture
+                // must still fall back to the folder cover on the next track.
+                if (variants.thumbnail != null) artworkCache.put(key, variants)
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Reads a folder cover document, reusing the decode for every track in the
+     * same folder. A missing or unreadable cover is cached as empty so the scan
+     * does not reopen the same document for each track.
+     */
+    private fun readFolderArtwork(
+        artworkUri: Uri,
+        artworkCache: ArtworkVariantCache?,
+    ): ArtworkVariants? {
+        if (artworkCache == null) return readArtworkFileVariants(artworkUri)
+
+        val key = ArtworkVariantCache.Key(embedded = false, value = artworkUri.toString())
+        artworkCache.get(key)?.let { return it }
+
+        return (readArtworkFileVariants(artworkUri) ?: EMPTY_ARTWORK).also { variants ->
+            artworkCache.put(key, variants)
+        }
+    }
+
+    /** Content-addressed cache key for an embedded picture. */
+    private fun embeddedArtworkKey(embedded: ByteArray): ArtworkVariantCache.Key {
+        val digest = MessageDigest.getInstance("SHA-256").digest(embedded)
+        val hash = buildString(ARTWORK_KEY_HASH_BYTES * 2) {
+            for (index in 0 until ARTWORK_KEY_HASH_BYTES) {
+                val value = digest[index].toInt() and 0xFF
+                append(HEX_DIGITS[value ushr 4])
+                append(HEX_DIGITS[value and 0x0F])
+            }
+        }
+        return ArtworkVariantCache.Key(embedded = true, value = hash)
     }
 
     /**
@@ -209,6 +323,21 @@ class MetadataExtractor @Inject constructor(
         }
 
     companion object {
+        /**
+         * Number of files metadata may be read from at once.
+         *
+         * Two workers hide SAF latency without letting several full-resolution
+         * covers be decoded at the same time on memory-constrained devices.
+         */
+        private const val SCAN_EXTRACTION_PARALLELISM = 2
+
+        /** Bytes of the SHA-256 digest used as an embedded-artwork cache key. */
+        private const val ARTWORK_KEY_HASH_BYTES = 16
+
+        private const val HEX_DIGITS = "0123456789abcdef"
+
+        private val EMPTY_ARTWORK = ArtworkVariants(thumbnail = null, full = null)
+
         /** Maximum width/height of the thumbnail variant, in pixels. */
         const val MAX_ARTWORK_DIMENSION_PX = 512
 

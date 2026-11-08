@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
+import java.util.IdentityHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -193,6 +194,16 @@ class ScanCoordinator @Inject constructor(
         val now = System.currentTimeMillis()
         val rowsToWrite = ArrayList<TrackEntity>(results.size)
 
+        // Tracks that share a cover receive the same cached variant instance
+        // from MetadataExtractor. Remember its stored URI so the content hash
+        // and the file-system check are not repeated for every track.
+        val storedArtworkUris = IdentityHashMap<ByteArray, String?>()
+        suspend fun storeArtwork(bytes: ByteArray?): String? {
+            if (bytes == null) return null
+            if (storedArtworkUris.containsKey(bytes)) return storedArtworkUris[bytes]
+            return artworkStore.store(bytes).also { uri -> storedArtworkUris[bytes] = uri }
+        }
+
         for (result in results) {
             val file = result.file
             val existing = existingByUri[file.uri.toString()]
@@ -209,10 +220,8 @@ class ScanCoordinator @Inject constructor(
                         // stale one is dropped by the cleanup below. A small
                         // source image yields the same bytes for both variants,
                         // so the store writes a single file.
-                        artworkUri = result.metadata.artworkBytes?.let { artworkStore.store(it) },
-                        fullArtworkUri = result.metadata.fullArtworkBytes?.let {
-                            artworkStore.store(it)
-                        },
+                        artworkUri = storeArtwork(result.metadata.artworkBytes),
+                        fullArtworkUri = storeArtwork(result.metadata.fullArtworkBytes),
                     )
                     if (existing == null) added++ else updated++
                 }

@@ -22,9 +22,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // App-scoped connection: the service keeps playing when the activity
-        // is stopped, and the controller keeps observing it for the UI.
-        playerController.connect()
         enableEdgeToEdge()
         setContent {
             DoReMeDoReDoTheme {
@@ -37,5 +34,12 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+
+        // Connecting binds the playback service, which creates the single
+        // ExoPlayer, its renderers and the MediaSession on the main thread.
+        // Deferring it keeps that work out of the synchronous onCreate/setContent
+        // startup path; commands issued earlier are queued by PlayerController
+        // and replayed once the connection is ready.
+        window.decorView.post { playerController.connect() }
     }
 }

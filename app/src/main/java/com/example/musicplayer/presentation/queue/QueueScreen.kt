@@ -203,7 +203,12 @@ private fun QueueList(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(QueueRowSpacing),
     ) {
-        itemsIndexed(items) { index, item ->
+        // No key: the same track may legitimately appear twice in the queue.
+        // The content type still lets Compose reuse row compositions by slot.
+        itemsIndexed(
+            items = items,
+            contentType = { _, _ -> "queueItem" },
+        ) { index, item ->
             val isDragging = index == draggingIndex
             val handleSelect = remember(index, onSelect) { { onSelect(index) } }
             val handleRemove = remember(index, onRemove) { { onRemove(index) } }

@@ -92,9 +92,20 @@ class PlayerController @Inject constructor(
                 refreshShuffleOrder(player)
             }
 
-            // Playlist/timeline events are infrequent, so rebuild the queue
-            // here rather than on every position tick.
-            publish(player, refreshQueue = true)
+            // onEvents fires for every player event, including frequent ones
+            // that cannot change the queue (buffering, playing state, metadata,
+            // volume, errors, ...). Only a timeline/current-item/shuffle change
+            // can alter the projection, so only those rebuild it: rebuilding a
+            // 10,000-item queue allocates a 10,000-element list and projects
+            // every media item again, on the main thread.
+            publish(
+                player,
+                refreshQueue = events.containsAny(
+                    Player.EVENT_TIMELINE_CHANGED,
+                    Player.EVENT_MEDIA_ITEM_TRANSITION,
+                    Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED,
+                ),
+            )
         }
 
         override fun onPlayerError(error: PlaybackException) {
@@ -404,8 +415,9 @@ class PlayerController @Inject constructor(
      * Publishes a fresh [PlaybackState] snapshot.
      *
      * [refreshQueue] rebuilds the queue projection from the player. It is set
-     * only for playlist/timeline events; the periodic position updates reuse
-     * the cached queue so the queue list is not reallocated on every tick.
+     * only for playlist/timeline/track-transition events; the periodic position
+     * updates and the many other player events reuse the cached queue so the
+     * queue list is not reallocated on every tick.
      */
     private fun publish(player: Player, refreshQueue: Boolean) {
         val durationMs = player.duration.validOrZero()
@@ -417,7 +429,9 @@ class PlayerController @Inject constructor(
             lastError = null
         }
 
-        if (refreshQueue) {
+        // The size check is an O(1) safety net: a playlist change must never be
+        // missed by the projection even if its event was coalesced away.
+        if (refreshQueue || cachedQueue.items.size != player.mediaItemCount) {
             cachedQueue = buildQueue(player)
         }
 

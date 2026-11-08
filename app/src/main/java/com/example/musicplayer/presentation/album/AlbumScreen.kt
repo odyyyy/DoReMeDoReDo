@@ -123,6 +123,7 @@ fun AlbumScreen(
                     items(
                         items = state.tracks,
                         key = { it.uri },
+                        contentType = { "albumTrack" },
                     ) { track ->
                         val isCurrent = playbackHighlight?.trackUri == track.uri
                         val isPlaying = isCurrent && playbackHighlight?.isPlaying == true
