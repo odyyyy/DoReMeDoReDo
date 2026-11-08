@@ -15,6 +15,7 @@ hiltNavigationCompose = "1.4.0"
 datastore = "1.3.0"
 documentfile = "1.1.0"
 coroutines = "1.11.0"
+serialization = "1.8.1"
 junit = "4.13.2"
 junitVersion = "1.1.5"
 espressoCore = "3.7.0"
@@ -44,10 +45,17 @@ androidx-navigation-compose = { group = "androidx.navigation", name = "navigatio
 # Kotlin coroutines
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 
+# Kotlin serialization
+# Room's migration tooling (used by androidTest) requires serialization-json 1.8.1.
+# Declaring the matching core version here keeps the app and test classpaths aligned,
+# since AGP applies consistent resolution to androidTest.
+kotlinx-serialization-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-core", version.ref = "serialization" }
+
 # Room
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+androidx-room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
 
 # Media3
 androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }

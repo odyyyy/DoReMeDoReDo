@@ -3,7 +3,9 @@ package com.example.musicplayer.domain.usecase
 import com.example.musicplayer.domain.model.Album
 import com.example.musicplayer.domain.model.Track
 import com.example.musicplayer.domain.model.albumGroupingKey
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 
@@ -29,7 +31,12 @@ class GetAlbumsUseCase @Inject constructor(
      * starting a second query and a second mapping pass per library change.
      */
     operator fun invoke(tracks: Flow<List<Track>>): Flow<List<Album>> =
-        tracks.map { groupTracksIntoAlbums(it) }
+        tracks
+            .map { groupTracksIntoAlbums(it) }
+            // Grouping and sorting the whole library is O(n); keep it off the
+            // main thread so typing in search cannot drop frames on a large
+            // collection.
+            .flowOn(Dispatchers.Default)
 }
 
 /** Pure grouping helper for domain tracks into albums. */

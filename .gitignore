@@ -59,6 +59,7 @@ hs_err_pid*
 *.jks
 *.keystore
 .signing/
+keystore.properties
 
 .env
 .env.*

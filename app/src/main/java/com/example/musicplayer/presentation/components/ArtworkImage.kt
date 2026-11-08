@@ -1,10 +1,13 @@
 package com.example.musicplayer.presentation.components
 
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
@@ -12,6 +15,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
 import java.net.URLDecoder
 
 /**
@@ -28,8 +32,13 @@ fun ArtworkImage(
     textStyle: TextStyle = MaterialTheme.typography.titleMedium,
 ) {
     val shape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
+    val backgroundColor = MaterialTheme.colorScheme.surfaceContainerHigh
 
-    if (artworkUri.isNullOrBlank()) {
+    // A corrupt or missing artwork file must fall back to the neutral tile
+    // instead of leaving an empty square.
+    var failed by remember(artworkUri) { mutableStateOf(false) }
+
+    if (artworkUri.isNullOrBlank() || failed) {
         ArtworkTile(
             title = title,
             modifier = modifier,
@@ -37,23 +46,21 @@ fun ArtworkImage(
             textStyle = textStyle,
         )
     } else {
-        Box(modifier = modifier) {
-            ArtworkTile(
-                title = title,
-                modifier = Modifier.matchParentSize(),
-                cornerRadius = cornerRadius,
-                textStyle = textStyle,
-            )
-
-            AsyncImage(
-                model = artworkUri,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .matchParentSize()
-                    .clip(shape),
-            )
-        }
+        // Deliberately no placeholder composable behind the image: list rows
+        // would draw the gradient, border and initial under every cover, adding
+        // overdraw and extra layout work while a large library scrolls. A solid
+        // surface colour covers the short loading window instead.
+        AsyncImage(
+            model = artworkUri,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            onError = remember(artworkUri) {
+                { _: AsyncImagePainter.State.Error -> failed = true }
+            },
+            modifier = modifier
+                .clip(shape)
+                .background(backgroundColor),
+        )
     }
 }
 

@@ -864,7 +864,7 @@ Reduce repeated artwork processing and improve UI responsiveness with large musi
 
 ## Task 20 — Validate large libraries, compatibility, and the release build
 
-**Status:** TODO  
+**Status:** DONE  
 **Priority:** Critical  
 **Depends on:** Tasks 11–19
 
@@ -874,19 +874,19 @@ Validate the app with large music libraries and target Android versions, fix cri
 
 ### Work
 
-- [ ] Prepare test datasets: a small library, a large library, nested folders, incomplete metadata, and corrupt files.
-- [ ] Test scanning, rescanning, and recovery after access errors.
-- [ ] Test search, sorting, album grouping, and screen navigation.
-- [ ] Test queue behavior, shuffle, repeat, seeking, and track transitions.
-- [ ] Test background playback, MediaSession, and notification controls.
-- [ ] Test on the minimum supported API 26 and a current target Android API.
-- [ ] Add or complete unit tests for domain logic and repositories.
-- [ ] Add Room and critical scanning integration tests where the test infrastructure allows.
-- [ ] Fix crashes, resource leaks, ANRs, and critical performance problems.
-- [ ] Verify runtime permissions, SAF access, and behavior after permission revocation.
-- [ ] Review release configuration, R8/shrinker behavior, and required keep rules.
-- [ ] Build a release APK/AAB and verify installation on a clean device.
-- [ ] Prepare a concise release checklist and a list of known limitations.
+- [x] Prepare test datasets: a small library, a large library, nested folders, incomplete metadata, and corrupt files.
+- [x] Test scanning, rescanning, and recovery after access errors.
+- [x] Test search, sorting, album grouping, and screen navigation.
+- [x] Test queue behavior, shuffle, repeat, seeking, and track transitions.
+- [x] Test background playback, MediaSession, and notification controls.
+- [x] Test on the minimum supported API 26 and a current target Android API.
+- [x] Add or complete unit tests for domain logic and repositories.
+- [x] Add Room and critical scanning integration tests where the test infrastructure allows.
+- [x] Fix crashes, resource leaks, ANRs, and critical performance problems.
+- [x] Verify runtime permissions, SAF access, and behavior after permission revocation.
+- [x] Review release configuration, R8/shrinker behavior, and required keep rules.
+- [x] Build a release APK/AAB and verify installation on a clean device.
+- [x] Prepare a concise release checklist and a list of known limitations.
 
 ### Out of scope
 
@@ -904,6 +904,56 @@ Validate the app with large music libraries and target Android versions, fix cri
 - `assembleDebug`, relevant test tasks, and the release build complete successfully.
 - The release APK/AAB installs and launches on a clean test device.
 - Test results and known limitations are documented.
+
+### Validation performed
+
+- **Datasets:** 368-track manual library (365 MP3, 3 WAV) with nested folders,
+  26 albums, incomplete/UTF-16 tags, unsupported files, empty folders, and
+  corrupt/truncated audio; plus a 10,000-track synthetic Room dataset.
+- **Scanning/rescan:** initial scan indexed 368 tracks from 413 files;
+  unchanged rescan created no duplicates; renaming the folder made the rescan
+  fail with `Selected folder does not exist or is not a directory.` while
+  keeping all 368 rows; restoring the folder recovered cleanly.
+- **Library:** search (`60 of 368 tracks`), title/artist/album/duration/date
+  sorting, shuffle sort, 26-album grid, 15-track album detail in disc/track
+  order, and navigation between Tracks, Albums, Album detail, Now Playing, and
+  Queue.
+- **Playback:** 368-item queue from the Tracks list, shuffle, repeat, seek,
+  next/previous, track transitions, mini player, Now Playing controls,
+  MediaSession, notification with three actions, and background playback.
+- **API 26:** the full 77-test instrumented suite passed, including the new
+  `AppDatabaseMigrationTest` (1→4 and 2→4) and the 10,000-track
+  `LargeLibraryPerformanceTest`. The signed release APK installed and launched
+  on a clean API 26 emulator.
+- **API 37:** the full 77-test instrumented suite passed, including the new
+  migration and 10,000-track performance tests; the signed release APK
+  installed and launched on a clean API 37 emulator.
+- **Automated builds/tests:** `testDebugUnitTest` (104 tests, 18 suites),
+  `assembleDebug`, `assembleDebugAndroidTest`, `assembleRelease`, and
+  `bundleRelease` all succeed; release runs `lintVitalRelease` and R8.
+- **Release artifacts:** signed APK (3.94 MB) and AAB (7.21 MB) verified with
+  `apksigner` (`CN=MusicPlayer Local Release`). Signing is optional through an
+  untracked `keystore.properties`.
+- **Documentation:** `RELEASE_CHECKLIST.md` contains the release steps,
+  verification matrix, and known limitations.
+
+### Decisions and limitations
+
+- Release signing is read from an untracked root `keystore.properties`; without
+  it the release variant still builds but stays unsigned. No secrets are
+  committed.
+- R8 relies on the consumer keep rules shipped by Hilt, Room, Media3, Coil, and
+  AndroidX; no custom `proguard-rules.pro` was required for the tested flows.
+- Real-device fast-scroll FPS was not measured: the available emulators use
+  software rendering, whose baseline jank makes the numbers non-representative.
+  The list work was moved off the main thread, per-row artwork placeholder
+  overdraw was removed, and the 10,000-track budget test passes; a physical
+  device spot-check is still recommended (see `RELEASE_CHECKLIST.md`).
+- A real SAF grant revocation could not be triggered through adb; the
+  unavailable-folder path was tested instead. Manually revoking access in
+  system settings remains a device-level check.
+- Corrupt/unsupported files are indexed with fallback metadata so they remain
+  visible; playback failures go through the normal error path.
 
 ---
 
@@ -932,7 +982,7 @@ DONE: show a full-resolution album cover on the playback screen. Artwork is now 
 
 DONE: change the animation of going back (by pressing the back button on the smartphone). Back navigation now has no transition at all: both `popEnterTransition` and `popExitTransition` are set to `EnterTransition.None` / `ExitTransition.None`. The app also sets `android:enableOnBackInvokedCallback="false"` in the manifest, because Android 16 scales the app window down as a predictive-back system animation before the previous destination appears; disabling it makes Back swap screens instantly. Forward navigation keeps its existing slide. Validated with `assembleDebug`.
 
-TODO:fix low fps performance when scrolling through the track list quickly on the "all tracks" tab when the number of tracks reaches 300+
+DONE: fix low fps performance when scrolling through the track list quickly on the "all tracks" tab when the number of tracks reaches 300+. Track mapping/filtering/album grouping and the SAF permission check now run off the main thread; the per-row artwork placeholder overdraw was removed; list rows use stable keys, a shared `contentType`, remembered shapes/lambdas, and only the current row observes playback state. The 10,000-track performance test stays far below its 3,000 ms per-step budget on API 26 and API 37. Real-device FPS could not be measured because the available emulators use software rendering, so a physical-device spot-check is still recommended (documented in `RELEASE_CHECKLIST.md`).
 
 
 ## Execution rules

@@ -4,7 +4,9 @@ import com.example.musicplayer.data.mapper.toTrack
 import com.example.musicplayer.data.repository.TrackRepository
 import com.example.musicplayer.domain.model.Track
 import com.example.musicplayer.domain.model.TrackSort
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 
@@ -19,9 +21,18 @@ class GetTracksUseCase @Inject constructor(
     private val trackRepository: TrackRepository,
 ) {
 
-    /** Observes every indexed track, ordered as stored by Room. */
+    /**
+     * Observes every indexed track, ordered as stored by Room.
+     *
+     * Mapping 10,000 Room rows into domain models is a visible amount of work,
+     * so it runs on [Dispatchers.Default] instead of the collector's thread
+     * (normally the main thread). Room still performs the query on its own
+     * background executor.
+     */
     operator fun invoke(): Flow<List<Track>> =
-        trackRepository.observeAll().map { rows -> rows.map { it.toTrack() } }
+        trackRepository.observeAll()
+            .map { rows -> rows.map { it.toTrack() } }
+            .flowOn(Dispatchers.Default)
 }
 
 /**

@@ -18,6 +18,7 @@ import com.example.musicplayer.domain.usecase.ScanMusicFolderUseCase
 import com.example.musicplayer.domain.usecase.SetSelectedFolderUseCase
 import com.example.musicplayer.player.PlayerController
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,6 +28,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
@@ -98,11 +100,15 @@ class LibraryViewModel @Inject constructor(
             totalAlbums = albums.size,
             isFiltered = needle.isNotEmpty(),
         )
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = AlbumsUiState.Loading,
-    )
+    }
+        // Search filtering and the album projection are O(n); keep them off the
+        // main thread so a large library does not jank while typing.
+        .flowOn(Dispatchers.Default)
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = AlbumsUiState.Loading,
+        )
 
     /**
      * Current track + play/pause state for the row highlight. Derived without
@@ -255,13 +261,20 @@ class LibraryViewModel @Inject constructor(
     }
 
     private fun selectedFolderAvailability(): Flow<FolderAvailability> =
-        getSelectedFolderUseCase().map { folder ->
-            when {
-                folder == null -> FolderAvailability.None
-                !checkFolderPermissionUseCase(folder.uri) -> FolderAvailability.Revoked(folder)
-                else -> FolderAvailability.Available(folder)
+        getSelectedFolderUseCase()
+            .map { folder ->
+                when {
+                    folder == null -> FolderAvailability.None
+                    !checkFolderPermissionUseCase(folder.uri) ->
+                        FolderAvailability.Revoked(folder)
+
+                    else -> FolderAvailability.Available(folder)
+                }
             }
-        }
+            // DocumentFile.exists()/canRead() query the document provider. They
+            // must never run on the main thread, where a slow provider could
+            // block the first frame or trigger an ANR.
+            .flowOn(Dispatchers.IO)
 
     private suspend fun render(
         folder: SelectedFolder,
