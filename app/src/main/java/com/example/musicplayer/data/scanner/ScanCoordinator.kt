@@ -3,6 +3,7 @@ package com.example.musicplayer.data.scanner
 import android.net.Uri
 import com.example.musicplayer.data.artwork.ArtworkStore
 import com.example.musicplayer.data.database.TrackEntity
+import com.example.musicplayer.data.database.isSameCover
 import com.example.musicplayer.data.database.isSameFile
 import com.example.musicplayer.data.database.toTrackEntity
 import com.example.musicplayer.data.repository.TrackRepository
@@ -175,14 +176,17 @@ class ScanCoordinator @Inject constructor(
         // artwork or track-position extraction ran: those still have
         // artworkScanned == false, fullArtworkScanned == false or
         // orderScanned == false and get their covers and album position
-        // backfilled by this scan.
+        // backfilled by this scan. A changed folder cover also forces re-read,
+        // so replaced covers appear in the library even when the audio file
+        // itself is untouched.
         val needsExtraction = discovered.filter { file ->
             val existing = existingByUri[file.uri.toString()]
             existing == null ||
                 !existing.artworkScanned ||
                 !existing.fullArtworkScanned ||
                 !existing.orderScanned ||
-                !existing.isSameFile(size = file.size, modifiedAt = file.lastModified)
+                !existing.isSameFile(size = file.size, modifiedAt = file.lastModified) ||
+                !existing.isSameCover(coverLastModified = file.artworkFileLastModified)
         }
 
         val results = if (needsExtraction.isEmpty()) {

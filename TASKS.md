@@ -1131,6 +1131,49 @@ DONE: fix low fps performance when scrolling through the track list quickly on t
 ## Can be improved
 - Crossfade	Плавное затухание одного трека и начало другого
 - ReplayGain	Автоматическое выравнивание громкости композиций
+
+
+## Task 23 — Performance optimization: animations, scan speed, artwork refresh, APK size
+
+**Status:** DONE  
+**Priority:** High  
+**Depends on:** Tasks 11–22
+
+### Goal
+
+Address user-reported performance issues: laggy screen transitions, slow folder scanning, stale album covers after artwork changes, and release APK size.
+
+### Changes
+
+**Navigation animations (`navigation/AppNavigation.kt`):**
+- Reduced `NAVIGATION_ANIMATION_MS` from 260 → 120 ms and `NAVIGATION_FADE_MS` from 170 → 80 ms so push transitions complete faster.
+- Removed the `-it / 3` parallax from `slideOutHorizontally` to cut composition work during screen exits.
+- Reduced tab switch durations: `TAB_ENTER_ANIMATION_MS` 220 → 140 ms, `TAB_EXIT_ANIMATION_MS` 120 → 70 ms, `TAB_INITIAL_SCALE` 0.97 → 0.95.
+
+**Scan speed (`data/scanner/MetadataExtractor.kt`, `data/scanner/MusicScanner.kt`):**
+- Increased `SCAN_EXTRACTION_PARALLELISM` from a fixed 2 to `minOf(8, availableProcessors())`, overlapping SAF/`MediaMetadataRetriever` latency across more workers.
+- `selectFolderArtwork` no longer calls `file.type` (a per-file SAF MIME query); it matches image files by extension only, removing one provider round-trip per candidate.
+
+**Album cover refresh (`data/scanner/MusicScanner.kt`, `data/scanner/ScanCoordinator.kt`, `data/database/TrackEntity.kt`, `data/database/TrackEntity.kt`, `data/database/TrackEntityMapper.kt`, `domain/model/DiscoveredAudioFile.kt`, `data/database/AppDatabase.kt`):**
+- Added `artworkFileLastModified` to `DiscoveredAudioFile` and a matching `artworkFileLastModified` column (default `0`) to `TrackEntity`, with a Room schema migration v4→v5.
+- `MusicScanner` now captures the folder cover document's last-modified timestamp and stores it on each discovered file.
+- `ScanCoordinator.needsExtraction` treats a changed cover last-modified as a reason to re-extract, so replaced folder covers appear in the library even when audio file size/mtime are unchanged.
+
+**APK size (`app/build.gradle.kts`):**
+- Added `resConfigs("en")` to strip unused locale resources.
+- Release build runs R8 minification (`optimization { enable = true }`) and `lintVitalRelease`.
+
+### Validation performed
+
+- `./gradlew assembleDebug` → BUILD SUCCESSFUL
+- `./gradlew testDebugUnitTest` → 104 unit tests across 19 suites, 0 failures
+- `./gradlew assembleDebugAndroidTest` → BUILD SUCCESSFUL
+- `./gradlew assembleRelease` → BUILD SUCCESSFUL; signed release APK 3.93 MB (down from 3.94 MB)
+
+### Notes
+
+- No before/after wall-clock scan benchmark was captured; actual scan speed-up depends on SAF provider latency and artwork sharing between tracks. A device-level timing run is recommended.
+- `resConfigs` is deprecated in AGP 9.5; migrate to `androidResources.localeFilters` when upgrading AGP.
 - 
 
 

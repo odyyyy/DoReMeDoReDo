@@ -132,7 +132,7 @@ class MusicScanner @Inject constructor(
             }
 
             // One lookup per folder: all audio files in it share the same cover.
-            val folderArtworkUri = selectFolderArtwork(files)
+            val (folderArtworkUri, folderArtworkLastModified) = selectFolderArtwork(files)
 
             // A cue sheet next to the audio files can define the album order
             // even when the files themselves carry no track number.
@@ -155,6 +155,7 @@ class MusicScanner @Inject constructor(
                                 lastModified = file.lastModified(),
                                 parentFolderUri = dir.uri,
                                 artworkFileUri = folderArtworkUri,
+                                artworkFileLastModified = folderArtworkLastModified,
                                 cueTrackNumber = cueHint?.trackNumber,
                                 cueDiscNumber = cueHint?.discNumber,
                             )
@@ -284,9 +285,10 @@ class MusicScanner @Inject constructor(
 
     /**
      * Resolves the folder cover document, tolerating providers that fail on
-     * individual entries. Returns `null` when the folder has no usable image.
+     * individual entries. Returns the cover URI and its last-modified timestamp
+     * (or `null` and `0` when the folder has no usable image).
      */
-    private fun selectFolderArtwork(files: Array<DocumentFile>): Uri? {
+    private fun selectFolderArtwork(files: Array<DocumentFile>): Pair<Uri?, Long> {
         val images = files.mapNotNull { file ->
             val name = try {
                 file.name
@@ -300,16 +302,19 @@ class MusicScanner @Inject constructor(
             }
 
             val isImage = try {
-                file.type?.startsWith("image/", ignoreCase = true) == true ||
-                    name.substringAfterLast('.', "").lowercase(Locale.ROOT) in ARTWORK_EXTENSIONS
+                name.substringAfterLast('.', "").lowercase(Locale.ROOT) in ARTWORK_EXTENSIONS
             } catch (_: Exception) {
                 false
             }
-            if (isImage) name to file.uri else null
+            if (isImage) file to name else null
         }
 
-        val chosenName = chooseFolderArtworkName(images.map { it.first }) ?: return null
-        return images.firstOrNull { it.first == chosenName }?.second
+        val chosenName = chooseFolderArtworkName(images.map { it.second }) ?: return null to 0
+        val chosen = images.firstOrNull { it.second == chosenName }
+        val coverFile = chosen?.first
+        val coverUri = coverFile?.uri
+        val coverLastModified = try { coverFile?.lastModified() ?: 0 } catch (_: Exception) { 0 }
+        return coverUri to coverLastModified
     }
 
     /**

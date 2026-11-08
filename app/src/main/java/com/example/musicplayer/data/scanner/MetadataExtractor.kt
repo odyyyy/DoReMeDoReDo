@@ -326,10 +326,13 @@ class MetadataExtractor @Inject constructor(
         /**
          * Number of files metadata may be read from at once.
          *
-         * Two workers hide SAF latency without letting several full-resolution
-         * covers be decoded at the same time on memory-constrained devices.
+         * Each read is dominated by `MediaMetadataRetriever` and SAF I/O rather
+         * than CPU, so bounded parallelism hides provider latency. The fan-out
+         * is capped at 8 to avoid decoding several full-resolution covers
+         * simultaneously on memory-constrained devices.
          */
-        private const val SCAN_EXTRACTION_PARALLELISM = 2
+        private val SCAN_EXTRACTION_PARALLELISM: Int
+            get() = minOf(8, Runtime.getRuntime().availableProcessors())
 
         /** Bytes of the SHA-256 digest used as an embedded-artwork cache key. */
         private const val ARTWORK_KEY_HASH_BYTES = 16

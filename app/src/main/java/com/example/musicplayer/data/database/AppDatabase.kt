@@ -26,15 +26,21 @@ import androidx.room.RoomDatabase
  * rows whose full-resolution cover was never extracted, so Now Playing can show
  * a sharp cover while lists keep using the small thumbnail. Existing rows stay
  * readable and keep their thumbnail until that backfill runs.
+ *
+ * Version 5 adds `TrackEntity.artworkFileLastModified` (defaults to `0`). The
+ * next scan re-reads rows whose folder cover was replaced on disk, so changed
+ * album covers appear in the library even when the audio files themselves are
+ * untouched.
  */
 @Database(
     entities = [TrackEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
         AutoMigration(from = 3, to = 4),
+        AutoMigration(from = 4, to = 5),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {

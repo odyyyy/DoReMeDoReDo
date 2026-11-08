@@ -31,6 +31,9 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Keep only the English locale to strip unused alternative resources.
+        resConfigs("en")
     }
 
     signingConfigs {
@@ -69,6 +72,11 @@ android {
     }
     buildFeatures {
         compose = true
+    }
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
     }
     sourceSets {
         // MigrationTestHelper reads the exported Room schemas from test assets.

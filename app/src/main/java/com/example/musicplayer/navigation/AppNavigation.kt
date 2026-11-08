@@ -135,9 +135,8 @@ fun AppNavigation(
                             targetScale = TAB_TARGET_SCALE,
                         )
                 } else {
-                    slideOutHorizontally(animationSpec = tween(NAVIGATION_ANIMATION_MS)) {
-                        -it / 3
-                    } + fadeOut(animationSpec = tween(NAVIGATION_FADE_MS))
+                    slideOutHorizontally(animationSpec = tween(NAVIGATION_ANIMATION_MS)) { it } +
+                        fadeOut(animationSpec = tween(NAVIGATION_FADE_MS))
                 }
             },
             // Back returns to the previous screen immediately, with no
@@ -218,19 +217,19 @@ private fun isTabSwitch(initialRoute: String?, targetRoute: String?): Boolean {
 }
 
 /** Duration of the horizontal screen slide used for push navigation. */
-private const val NAVIGATION_ANIMATION_MS = 260
+private const val NAVIGATION_ANIMATION_MS = 120
 
 /** Duration of the cross-fade layered on top of the push slide. */
-private const val NAVIGATION_FADE_MS = 170
+private const val NAVIGATION_FADE_MS = 80
 
 /** Incoming tab fade/scale duration. */
-private const val TAB_ENTER_ANIMATION_MS = 220
+private const val TAB_ENTER_ANIMATION_MS = 140
 
 /** Outgoing tab fades out faster so the new tab becomes readable sooner. */
-private const val TAB_EXIT_ANIMATION_MS = 120
+private const val TAB_EXIT_ANIMATION_MS = 70
 
 /** Incoming tab starts slightly smaller and settles to full size. */
-private const val TAB_INITIAL_SCALE = 0.97f
+private const val TAB_INITIAL_SCALE = 0.95f
 
 /** Outgoing tab drifts slightly larger as it fades away. */
 private const val TAB_TARGET_SCALE = 1.02f

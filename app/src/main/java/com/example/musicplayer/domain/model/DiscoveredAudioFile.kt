@@ -13,6 +13,10 @@ import android.net.Uri
  * @property parentFolderUri Document URI of the parent folder.
  * @property artworkFileUri Optional image file in the same folder (cover.jpg,
  *   folder.jpg, …) used when the audio file has no embedded artwork.
+ * @property artworkFileLastModified Last modified timestamp of the folder cover
+ *   document, or `0` when the folder has no cover. Changing the cover image while
+ *   the audio file itself is untouched forces a re-extraction on the next scan
+ *   so replaced covers appear in the library.
  * @property cueTrackNumber Track position taken from a cue sheet in the same
  *   folder, or `null` when no matching cue entry exists. Used only as an
  *   ordering hint when the audio tags do not carry a track number.
@@ -26,6 +30,7 @@ data class DiscoveredAudioFile(
     val lastModified: Long,
     val parentFolderUri: Uri,
     val artworkFileUri: Uri? = null,
+    val artworkFileLastModified: Long = 0,
     val cueTrackNumber: Int? = null,
     val cueDiscNumber: Int? = null,
 )

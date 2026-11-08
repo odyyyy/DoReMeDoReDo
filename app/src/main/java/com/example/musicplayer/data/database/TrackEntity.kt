@@ -36,6 +36,9 @@ import androidx.room.PrimaryKey
  *   track's position (tag or cue sheet). Rows indexed before ordering existed
  *   start as `false`, so the next scan backfills them; a track that genuinely
  *   has no number is marked `true` and is not re-read on every rescan.
+ * @property artworkFileLastModified Last modified timestamp of the folder cover
+ *   document when this row was indexed. Changing the cover image while the audio
+ *   file itself is untouched forces a re-extraction on the next scan.
  * @property folderUri URI of the parent folder that was scanned.
  * @property fileSize File size in bytes, or `0` when the provider did not
  *   report it.
@@ -77,6 +80,8 @@ data class TrackEntity(
     val fileSize: Long,
     val lastModified: Long,
     val dateAdded: Long,
+    @ColumnInfo(defaultValue = "0")
+    val artworkFileLastModified: Long = 0,
 )
 
 /**
@@ -88,3 +93,9 @@ data class TrackEntity(
  */
 fun TrackEntity.isSameFile(size: Long, modifiedAt: Long): Boolean =
     fileSize > 0L && lastModified > 0L && fileSize == size && lastModified == modifiedAt
+
+/** True when the folder cover this row was indexed from is the same version
+ * as the one currently on disk. A changed cover forces artwork re-extraction
+ * even when the audio file itself is untouched. */
+fun TrackEntity.isSameCover(coverLastModified: Long): Boolean =
+    coverLastModified == 0L || artworkFileLastModified == coverLastModified

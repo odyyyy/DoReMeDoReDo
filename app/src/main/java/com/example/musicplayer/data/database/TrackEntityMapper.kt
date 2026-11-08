@@ -13,6 +13,8 @@ import com.example.musicplayer.domain.model.TrackMetadata
  *   outside the database.
  * @param fullArtworkUri Optional reference to the full-resolution artwork stored
  *   outside the database. It may equal [artworkUri] for small source images.
+ * @param artworkFileLastModified Last modified timestamp of the folder cover
+ *   document, or `0` when the folder has no cover.
  * @param artworkScanned Whether artwork extraction has been attempted for this
  *   file. A freshly read file has always been tried, even when it produced no
  *   artwork.
@@ -27,6 +29,7 @@ fun DiscoveredAudioFile.toTrackEntity(
     dateAdded: Long,
     artworkUri: String? = null,
     fullArtworkUri: String? = null,
+    artworkFileLastModified: Long = 0,
     artworkScanned: Boolean = true,
     fullArtworkScanned: Boolean = true,
     orderScanned: Boolean = true,
@@ -48,4 +51,5 @@ fun DiscoveredAudioFile.toTrackEntity(
     fileSize = size,
     lastModified = lastModified,
     dateAdded = dateAdded,
+    artworkFileLastModified = artworkFileLastModified,
 )
