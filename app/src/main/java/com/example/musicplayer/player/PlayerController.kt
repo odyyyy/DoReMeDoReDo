@@ -80,6 +80,13 @@ class PlayerController @Inject constructor(
      */
     private var shuffleOrder: IntArray? = null
 
+    /**
+     * Freshly indexed artwork for tracks currently in or entering the queue.
+     * Media items keep the artwork they were created with, so this overlay lets
+     * a rescan replace a cover without rebuilding the playlist.
+     */
+    private val artworkOverrides = HashMap<String, TrackArtwork>()
+
     private val playerListener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
             // The shuffle order changes when shuffle is toggled or the playlist
@@ -333,6 +340,23 @@ class PlayerController @Inject constructor(
         mediaController.repeatMode = current.next().toPlayerRepeatMode()
     }
 
+    /**
+     * Applies artwork indexed by the latest scan to the player projection.
+     *
+     * Keys are track URIs; a `null` value clears any previous override for
+     * that URI. Only the state published to the UI changes, so a replaced
+     * cover cannot interrupt or reload the current track. The media
+     * notification keeps the artwork present when its item was loaded until
+     * that item is loaded again.
+     */
+    fun updateQueueArtwork(artworkByUri: Map<String, TrackArtwork?>) {
+        artworkOverrides.clear()
+        for ((uri, artwork) in artworkByUri) {
+            if (artwork != null) artworkOverrides[uri] = artwork
+        }
+        controller?.let { publish(it, refreshQueue = true) }
+    }
+
     /** Hides the last playback failure without changing playback. */
     fun dismissPlaybackError() {
         if (lastError == null) return
@@ -526,18 +550,31 @@ class PlayerController @Inject constructor(
         )
     }
 
-    private fun MediaItem.toPlaybackTrack(durationOverrideMs: Long? = null): PlaybackTrack =
-        PlaybackTrack(
+    private fun MediaItem.toPlaybackTrack(durationOverrideMs: Long? = null): PlaybackTrack {
+        val artwork = artworkOverrides[mediaId]
+        return PlaybackTrack(
             uri = localConfiguration?.uri?.toString() ?: mediaId,
             mediaId = mediaId,
             title = mediaMetadata.title?.toString().orEmpty(),
             artist = mediaMetadata.artist?.toString(),
             album = mediaMetadata.albumTitle?.toString(),
-            artworkUri = mediaMetadata.artworkUri?.toString(),
+            // An override wins even when its URI is null: that is how a cover
+            // removed from the library is cleared instead of falling back to
+            // the stale URI stored in the media item.
+            artworkUri = if (artwork != null) {
+                artwork.artworkUri
+            } else {
+                mediaMetadata.artworkUri?.toString()
+            },
             durationMs = durationOverrideMs ?: mediaMetadata.durationMs ?: 0L,
             albumId = mediaMetadata.extras?.getString(EXTRA_ALBUM_ID),
-            fullArtworkUri = mediaMetadata.extras?.getString(EXTRA_FULL_ARTWORK_URI),
+            fullArtworkUri = if (artwork != null) {
+                artwork.fullArtworkUri
+            } else {
+                mediaMetadata.extras?.getString(EXTRA_FULL_ARTWORK_URI)
+            },
         )
+    }
 
     private fun Long.validOrZero(): Long =
         if (this == C.TIME_UNSET || this < 0L) 0L else this

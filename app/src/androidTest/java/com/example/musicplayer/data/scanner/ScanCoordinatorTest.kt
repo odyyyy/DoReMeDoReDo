@@ -442,6 +442,24 @@ class ScanCoordinatorTest {
     }
 
     @Test
+    fun folderCoverStamp_isPersistedAndACoverChangeTriggersReread() = runBlocking {
+        val discovery = FakeDiscovery(success(file("a.mp3", coverModified = 100L)))
+        val coordinator = coordinator(discovery)
+
+        coordinator.scanFolder(FOLDER)
+
+        assertEquals(100L, dao.getAll().single().artworkFileLastModified)
+
+        metadata.reads = 0
+        coordinator.scanFolder(FOLDER)
+        assertEquals("an unchanged cover must not re-read metadata", 0, metadata.reads)
+
+        discovery.result = success(file("a.mp3", coverModified = 200L))
+        coordinator.scanFolder(FOLDER)
+        assertEquals("a replaced cover must re-read metadata", 1, metadata.reads)
+    }
+
+    @Test
     fun removedTrack_dropsBothArtworkVariants() = runBlocking {
         metadata.artwork = mapOf("gone.mp3" to byteArrayOf(5))
         metadata.fullArtwork = mapOf("gone.mp3" to byteArrayOf(6))
@@ -503,6 +521,7 @@ class ScanCoordinatorTest {
         name: String,
         size: Long = 1_024L,
         modified: Long = 1_700_000_000_000L,
+        coverModified: Long = 0L,
     ) = DiscoveredAudioFile(
         uri = Uri.parse("$ROOT/$name"),
         name = name,
@@ -510,6 +529,8 @@ class ScanCoordinatorTest {
         size = size,
         lastModified = modified,
         parentFolderUri = Uri.parse(PARENT),
+        artworkFileUri = if (coverModified > 0L) Uri.parse("$PARENT/cover.jpg") else null,
+        artworkFileLastModified = coverModified,
     )
 
     private fun success(vararg files: DiscoveredAudioFile) = ScanResult.Success(

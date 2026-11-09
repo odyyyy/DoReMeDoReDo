@@ -94,8 +94,15 @@ data class TrackEntity(
 fun TrackEntity.isSameFile(size: Long, modifiedAt: Long): Boolean =
     fileSize > 0L && lastModified > 0L && fileSize == size && lastModified == modifiedAt
 
-/** True when the folder cover this row was indexed from is the same version
- * as the one currently on disk. A changed cover forces artwork re-extraction
- * even when the audio file itself is untouched. */
+/**
+ * True when the folder cover this row was indexed from is the same version as
+ * the one currently on disk.
+ *
+ * The comparison is exact, so both a replaced cover (different timestamp) and
+ * a removed cover (`0` now, a timestamp before) force artwork re-extraction
+ * even when the audio file itself is untouched. Rows indexed before the stamp
+ * was persisted carry `0`; they are re-read once when the folder now has a
+ * cover, which backfills the proper stamp.
+ */
 fun TrackEntity.isSameCover(coverLastModified: Long): Boolean =
-    coverLastModified == 0L || artworkFileLastModified == coverLastModified
+    artworkFileLastModified == coverLastModified

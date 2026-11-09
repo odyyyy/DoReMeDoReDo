@@ -1177,6 +1177,60 @@ Address user-reported performance issues: laggy screen transitions, slow folder 
 - 
 
 
+## Task 24 — Faster transitions, batched scanning, live artwork refresh, smaller release
+
+**Status:** DONE  
+**Priority:** High  
+**Depends on:** Tasks 11–23
+
+### Goal
+
+Finish the user-reported performance work: make app start and Albums → Album detail feel instant, cut folder-scan time, make changed covers appear immediately (in the library and in the player), and shrink the release APK without removing functionality.
+
+### Changes
+
+**Transitions and startup (`navigation/AppNavigation.kt`, `MainActivity.kt`):**
+- Push navigation now uses a slide-only transition (no scale, no extra fade layer) over a quarter of the screen width in 120 ms. Pop transitions remain instant.
+- Tab switches are a short cross-fade only: 120 ms in, 70 ms out.
+- `PlayerController.connect()` is deferred by 250 ms after the first frame with `decorView.postDelayed`, keeping service/ExoPlayer/MediaSession creation off the startup frames. Commands issued in that window are queued and replayed after connection.
+
+**Scan speed (`data/scanner/MusicScanner.kt`):**
+- Replaced the per-document `DocumentFile` round-trips with one projected `DocumentsContract` child cursor per folder (`documentId`, display name, MIME type, size, last modified). Children are traversed recursively by document ID.
+- Added a `DocumentFile` fallback for providers that reject child cursors or do not expose a tree document ID, and a `MAX_DIRECTORY_DEPTH = 20` guard against cyclic trees.
+- Folder artwork and cue sheets are resolved from the same batch, so no extra MIME query is needed per candidate image.
+
+**Cover refresh in the library (`data/scanner/ScanCoordinator.kt`, `data/database/TrackEntity.kt`):**
+- `artworkFileLastModified` is now persisted for both successfully extracted rows and fallback rows.
+- `isSameCover` uses exact equality instead of treating `0` as a wildcard, so replacing **or removing** a folder cover triggers artwork re-extraction even when the audio file is unchanged.
+
+**Cover refresh in the player (`player/PlayerController.kt`, `player/PlaybackState.kt`, `presentation/library/LibraryViewModel.kt`):**
+- Added `TrackArtwork` and an artwork-override map applied when projecting `PlaybackTrack`. An override wins even when its URI is `null`, which clears a removed cover instead of falling back to the stale metadata copied into the media item.
+- After a scan reaches `ScanState.Completed`, `LibraryViewModel` performs a one-shot `currentTracks()` read and calls `updateQueueArtwork()`. This refreshes Mini Player/Now Playing/Queue artwork without rebuilding the playlist or interrupting playback. Failed and skipped scans do nothing; an empty queue does no work.
+
+**Album detail query (`domain/usecase/GetAlbumDetailUseCase.kt`, `data/database/TrackDao.kt`, repositories):**
+- Albums with scanner SHA-256 IDs now observe only `WHERE albumId = :albumId`, so opening an album no longer maps and groups the whole library. Fallback `album|artist` keys are not stored in a column and still observe the full library.
+
+**APK size (`app/build.gradle.kts`):**
+- Removed the R8 `packageScope` allow-list so optimization applies to the whole app.
+- Replaced deprecated `resConfigs("en")` with `androidResources.localeFilters += "en"`.
+- Excluded non-runtime metadata from packaging (`DEPENDENCIES`, `INDEX.LIST`, `LICENSE*`, `NOTICE*`, `*.version`).
+
+### Validation performed
+
+- `./gradlew testDebugUnitTest assembleDebug assembleRelease` → BUILD SUCCESSFUL
+- Unit tests: 115 tests across 19 suites, 0 failures/errors/skips (includes new cover-stamp and album-query tests).
+- `./gradlew assembleDebugAndroidTest` → BUILD SUCCESSFUL (instrumented tests compile).
+- Release APK: **2.34 MB**, down from **3.93 MB** (~40% smaller). Debug APK: 22.63 MB.
+
+### Limitations
+
+- No wall-clock scan benchmark on a device was captured; the 5–10 s goal depends on SAF provider latency, library size, and artwork sharing. The scan now issues one child query per folder instead of several per document, which is the main structural improvement.
+- The media notification keeps the artwork captured when its item was loaded; it updates on the next load of that item. Mini Player, Now Playing, and Queue update immediately.
+- The `albumId` column is filtered in SQL but not separately indexed. This already avoids mapping/grouping the whole library; adding an index would require a new Room schema version and is left as a future micro-optimization.
+- Deferring playback connection by 250 ms means the service is not visible for that brief window; queued commands are preserved.
+
+---
+
 ## Execution rules
 
 1. Execute tasks in order unless a dependency requires a documented adjustment.

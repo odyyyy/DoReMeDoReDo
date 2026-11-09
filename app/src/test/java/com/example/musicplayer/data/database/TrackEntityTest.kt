@@ -40,7 +40,49 @@ class TrackEntityTest {
         assertFalse(track.isSameFile(size = 0L, modifiedAt = 0L))
     }
 
-    private fun track(fileSize: Long, lastModified: Long) = TrackEntity(
+    @Test
+    fun isSameCover_matchesWhenStampIsUnchanged() {
+        val track = track(artworkFileLastModified = 1_700_000_000_000L)
+
+        assertTrue(track.isSameCover(coverLastModified = 1_700_000_000_000L))
+    }
+
+    @Test
+    fun isSameCover_detectsReplacedCover() {
+        val track = track(artworkFileLastModified = 1_700_000_000_000L)
+
+        assertFalse(track.isSameCover(coverLastModified = 1_700_000_000_001L))
+    }
+
+    @Test
+    fun isSameCover_detectsRemovedCover() {
+        // The row was indexed with a cover that no longer exists.
+        val track = track(artworkFileLastModified = 1_700_000_000_000L)
+
+        assertFalse(track.isSameCover(coverLastModified = 0L))
+    }
+
+    @Test
+    fun isSameCover_reExtractsWhenRowHasNoStampButFolderHasCover() {
+        // A row written before the cover stamp was persisted must be re-read
+        // once so its cover is refreshed.
+        val track = track(artworkFileLastModified = 0L)
+
+        assertFalse(track.isSameCover(coverLastModified = 1_700_000_000_000L))
+    }
+
+    @Test
+    fun isSameCover_matchesWhenNeitherRowNorFolderHasCover() {
+        val track = track(artworkFileLastModified = 0L)
+
+        assertTrue(track.isSameCover(coverLastModified = 0L))
+    }
+
+    private fun track(
+        fileSize: Long = 4_096L,
+        lastModified: Long = 1_700_000_000_000L,
+        artworkFileLastModified: Long = 0L,
+    ) = TrackEntity(
         uri = "content://music/track.mp3",
         title = "Title",
         artist = "Artist",
@@ -52,5 +94,6 @@ class TrackEntityTest {
         fileSize = fileSize,
         lastModified = lastModified,
         dateAdded = 1_700_000_100_000L,
+        artworkFileLastModified = artworkFileLastModified,
     )
 }

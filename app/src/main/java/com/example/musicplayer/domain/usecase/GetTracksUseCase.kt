@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
@@ -33,6 +34,28 @@ class GetTracksUseCase @Inject constructor(
         trackRepository.observeAll()
             .map { rows -> rows.map { it.toTrack() } }
             .flowOn(Dispatchers.Default)
+
+    /**
+     * Observes only the tracks tagged with [albumId].
+     *
+     * Album details use this so opening an album reads and maps one album's
+     * rows instead of the whole library.
+     */
+    fun byAlbumId(albumId: String): Flow<List<Track>> =
+        trackRepository.observeByAlbumId(albumId)
+            .map { rows -> rows.map { it.toTrack() } }
+            .flowOn(Dispatchers.Default)
+
+    /**
+     * Reads the current library once.
+     *
+     * Used after a completed scan to refresh artwork snapshots held by the
+     * player queue. It deliberately bypasses the shared observation flow so a
+     * cached replay cannot return pre-scan rows.
+     */
+    suspend fun currentTracks(): List<Track> = withContext(Dispatchers.Default) {
+        trackRepository.getAll().map { it.toTrack() }
+    }
 }
 
 /**

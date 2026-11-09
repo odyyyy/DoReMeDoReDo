@@ -1,7 +1,9 @@
 package com.example.musicplayer.data.scanner
 
 import android.content.Context
+import android.database.Cursor
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import com.example.musicplayer.domain.model.DiscoveredAudioFile
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -46,6 +48,23 @@ class MusicScanner @Inject constructor(
 
         /** Cue sheet extension. */
         private const val CUE_EXTENSION = "cue"
+
+        /** Guard against unbounded recursion on providers with cyclic trees. */
+        private const val MAX_DIRECTORY_DEPTH = 20
+
+        /**
+         * Columns requested for one directory child cursor. One query returns
+         * everything a child needs, replacing the several per-document
+         * round-trips of `DocumentFile.name`, `type`, `length`, `lastModified`
+         * and `isDirectory`.
+         */
+        private val DIRECTORY_PROJECTION = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+            DocumentsContract.Document.COLUMN_SIZE,
+            DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+        )
 
         /**
          * Upper bound for a cue sheet read. Sheets are a few kilobytes; the
@@ -114,46 +133,67 @@ class MusicScanner @Inject constructor(
             )
         }
 
+        // Traverse with one batched child query per folder instead of the
+        // several provider round-trips DocumentFile needs per document. The
+        // tree document ID is only available for document-tree URIs; without
+        // it the traversal falls back to DocumentFile for the whole tree.
+        val rootDocumentId = runCatching {
+            DocumentsContract.getTreeDocumentId(folderUri)
+        }.getOrNull()
+        val rootDocumentUri = rootDocumentId?.let { documentId ->
+            runCatching {
+                DocumentsContract.buildDocumentUriUsingTree(folderUri, documentId)
+            }.getOrNull()
+        } ?: folderUri
+
         val discoveredFiles = mutableListOf<DiscoveredAudioFile>()
         val warnings = mutableListOf<String>()
         var totalFilesScanned = 0
 
-        fun traverse(dir: DocumentFile, currentDepth: Int) {
-            if (currentDepth > 20) {
-                warnings.add("Exceeded maximum directory depth limit at ${dir.uri}")
+        fun traverse(dirUri: Uri, documentId: String?, currentDepth: Int) {
+            if (currentDepth > MAX_DIRECTORY_DEPTH) {
+                warnings.add("Exceeded maximum directory depth limit at $dirUri")
                 return
             }
 
-            val files = try {
-                dir.listFiles()
+            val entries = try {
+                listChildren(
+                    treeUri = folderUri,
+                    dirUri = dirUri,
+                    documentId = documentId,
+                )
             } catch (e: Exception) {
-                warnings.add("Failed to list contents in folder '${dir.name ?: dir.uri}': ${e.localizedMessage ?: e.message}")
+                warnings.add(
+                    "Failed to list contents in folder " +
+                        "'${dirUri.lastPathSegment ?: dirUri}': " +
+                        (e.localizedMessage ?: e.message),
+                )
                 return
             }
+
+            totalFilesScanned += entries.size
 
             // One lookup per folder: all audio files in it share the same cover.
-            val (folderArtworkUri, folderArtworkLastModified) = selectFolderArtwork(files)
+            val (folderArtworkUri, folderArtworkLastModified) = selectFolderArtwork(entries)
 
             // A cue sheet next to the audio files can define the album order
             // even when the files themselves carry no track number.
-            val cueHints = readCueHints(files, warnings)
+            val cueHints = readCueHints(entries, warnings)
 
-            for (file in files) {
-                totalFilesScanned++
+            for (entry in entries) {
                 try {
-                    if (file.isDirectory) {
-                        traverse(file, currentDepth + 1)
-                    } else if (file.isFile && isAudioCandidate(file)) {
-                        val fileName = file.name ?: "Unknown Track"
-                        val cueHint = cueHints[CueSheetParser.normalizeFileName(fileName)]
+                    if (entry.isDirectory) {
+                        traverse(entry.uri, entry.documentId, currentDepth + 1)
+                    } else if (isAudioCandidateByNameAndMime(entry.name, entry.mimeType)) {
+                        val cueHint = cueHints[CueSheetParser.normalizeFileName(entry.name)]
                         discoveredFiles.add(
                             DiscoveredAudioFile(
-                                uri = file.uri,
-                                name = fileName,
-                                mimeType = file.type,
-                                size = file.length(),
-                                lastModified = file.lastModified(),
-                                parentFolderUri = dir.uri,
+                                uri = entry.uri,
+                                name = entry.name,
+                                mimeType = entry.mimeType,
+                                size = entry.size,
+                                lastModified = entry.lastModified,
+                                parentFolderUri = dirUri,
                                 artworkFileUri = folderArtworkUri,
                                 artworkFileLastModified = folderArtworkLastModified,
                                 cueTrackNumber = cueHint?.trackNumber,
@@ -162,13 +202,16 @@ class MusicScanner @Inject constructor(
                         )
                     }
                 } catch (e: Exception) {
-                    warnings.add("Failed to process item '${file.name ?: file.uri}': ${e.localizedMessage ?: e.message}")
+                    warnings.add(
+                        "Failed to process item '${entry.name}': " +
+                            (e.localizedMessage ?: e.message),
+                    )
                 }
             }
         }
 
         try {
-            traverse(rootDoc, 0)
+            traverse(rootDocumentUri, rootDocumentId, 0)
         } catch (e: Exception) {
             return@withContext ScanResult.Failure(
                 folderUri = folderUri,
@@ -188,6 +231,133 @@ class MusicScanner @Inject constructor(
     }
 
     /**
+     * Lists one directory.
+     *
+     * A batched [DocumentsContract] child cursor is used when the provider
+     * returned a tree document ID. Otherwise, or when the provider rejects
+     * that query, the traversal falls back to DocumentFile so non-standard
+     * providers keep working.
+     */
+    private fun listChildren(
+        treeUri: Uri,
+        dirUri: Uri,
+        documentId: String?,
+    ): List<ScannedDocument> {
+        if (documentId != null) {
+            runCatching { queryChildren(treeUri, documentId) }
+                .getOrNull()
+                ?.let { return it }
+        }
+        return queryChildrenWithDocumentFile(dirUri)
+    }
+
+    /**
+     * Reads every child of [parentDocumentId] with one provider query.
+     *
+     * Returns `null` when the provider returns no cursor, which makes the
+     * caller fall back to DocumentFile for this directory.
+     */
+    private fun queryChildren(
+        treeUri: Uri,
+        parentDocumentId: String,
+    ): List<ScannedDocument>? {
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+            treeUri,
+            parentDocumentId,
+        )
+        return context.contentResolver.query(
+            childrenUri,
+            DIRECTORY_PROJECTION,
+            null,
+            null,
+            null,
+        )?.use { cursor -> readDocuments(treeUri, cursor) }
+    }
+
+    /** Projects one child cursor into [ScannedDocument] entries. */
+    private fun readDocuments(treeUri: Uri, cursor: Cursor): List<ScannedDocument> {
+        val idIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+        val nameIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+        if (idIndex < 0 || nameIndex < 0) {
+            throw IllegalStateException(
+                "Document provider did not return document ids or display names",
+            )
+        }
+        val mimeIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+        val sizeIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
+        val modifiedIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+
+        val documents = ArrayList<ScannedDocument>(cursor.count)
+        while (cursor.moveToNext()) {
+            val documentId = cursor.getString(idIndex) ?: continue
+            val name = cursor.getString(nameIndex) ?: continue
+            val mimeType = mimeIndex.takeIf { it >= 0 }?.let(cursor::getString)
+            val size = if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) {
+                cursor.getLong(sizeIndex).coerceAtLeast(0L)
+            } else {
+                0L
+            }
+            val lastModified = if (modifiedIndex >= 0 && !cursor.isNull(modifiedIndex)) {
+                cursor.getLong(modifiedIndex).coerceAtLeast(0L)
+            } else {
+                0L
+            }
+            val uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
+            documents += ScannedDocument(
+                documentId = documentId,
+                uri = uri,
+                name = name,
+                mimeType = mimeType,
+                size = size,
+                lastModified = lastModified,
+                isDirectory = resolveIsDirectory(uri, mimeType),
+            )
+        }
+        return documents
+    }
+
+    /**
+     * Resolves whether a cursor entry is a directory. Standard providers
+     * report the directory MIME type; one that omits the MIME type (rare) gets
+     * a single DocumentFile query so its subtree is not silently skipped.
+     */
+    private fun resolveIsDirectory(uri: Uri, mimeType: String?): Boolean {
+        if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) return true
+        if (mimeType != null) return false
+        return runCatching {
+            DocumentFile.fromSingleUri(context, uri)?.isDirectory == true
+        }.getOrDefault(false)
+    }
+
+    /**
+     * Fallback listing for providers that do not answer batched child
+     * queries. Every property is read defensively because a provider may fail
+     * on a single document without failing the whole folder.
+     */
+    private fun queryChildrenWithDocumentFile(dirUri: Uri): List<ScannedDocument> {
+        val directory = if (DocumentsContract.isTreeUri(dirUri)) {
+            DocumentFile.fromTreeUri(context, dirUri)
+        } else {
+            DocumentFile.fromSingleUri(context, dirUri)
+                ?: DocumentFile.fromTreeUri(context, dirUri)
+        } ?: throw IllegalArgumentException("Could not open folder $dirUri")
+
+        return directory.listFiles().map { file ->
+            ScannedDocument(
+                documentId = runCatching {
+                    DocumentsContract.getDocumentId(file.uri)
+                }.getOrNull(),
+                uri = file.uri,
+                name = file.name ?: "",
+                mimeType = runCatching { file.type }.getOrNull(),
+                size = runCatching { file.length() }.getOrDefault(0L),
+                lastModified = runCatching { file.lastModified() }.getOrDefault(0L),
+                isDirectory = runCatching { file.isDirectory }.getOrDefault(false),
+            )
+        }
+    }
+
+    /**
      * Reads the cue sheets of one folder and maps each audio file name to the
      * position declared for it.
      *
@@ -196,22 +366,18 @@ class MusicScanner @Inject constructor(
      * one item, so applying its first track number would be wrong.
      */
     private fun readCueHints(
-        files: Array<DocumentFile>,
+        files: List<ScannedDocument>,
         warnings: MutableList<String>,
     ): Map<String, CueTrackHint> {
         val hints = mutableMapOf<String, CueTrackHint>()
 
         for (file in files) {
-            val name = try {
-                file.name
-            } catch (_: Exception) {
-                null
-            } ?: continue
-
-            if (name.substringAfterLast('.', "").lowercase(Locale.ROOT) != CUE_EXTENSION) continue
+            if (file.isDirectory) continue
+            if (file.name.substringAfterLast('.', "").lowercase(Locale.ROOT) != CUE_EXTENSION) {
+                continue
+            }
 
             try {
-                if (file.isDirectory) continue
                 val text = readCueText(file.uri) ?: continue
                 val sheet = CueSheetParser.parse(text)
 
@@ -226,7 +392,8 @@ class MusicScanner @Inject constructor(
                 }
             } catch (e: Exception) {
                 warnings.add(
-                    "Failed to read cue sheet '$name': ${e.localizedMessage ?: e.message}",
+                    "Failed to read cue sheet '${file.name}': " +
+                        (e.localizedMessage ?: e.message),
                 )
             }
         }
@@ -284,45 +451,19 @@ class MusicScanner @Inject constructor(
     }
 
     /**
-     * Resolves the folder cover document, tolerating providers that fail on
-     * individual entries. Returns the cover URI and its last-modified timestamp
-     * (or `null` and `0` when the folder has no usable image).
+     * Resolves the folder cover document. Returns the cover URI and its
+     * last-modified timestamp (or `null` and `0` when the folder has no usable
+     * image).
      */
-    private fun selectFolderArtwork(files: Array<DocumentFile>): Pair<Uri?, Long> {
-        val images = files.mapNotNull { file ->
-            val name = try {
-                file.name
-            } catch (_: Exception) {
-                null
-            } ?: return@mapNotNull null
-            try {
-                if (file.isDirectory) return@mapNotNull null
-            } catch (_: Exception) {
-                return@mapNotNull null
-            }
-
-            val isImage = try {
-                name.substringAfterLast('.', "").lowercase(Locale.ROOT) in ARTWORK_EXTENSIONS
-            } catch (_: Exception) {
-                false
-            }
-            if (isImage) file to name else null
+    private fun selectFolderArtwork(files: List<ScannedDocument>): Pair<Uri?, Long> {
+        val images = files.filter { file ->
+            !file.isDirectory &&
+                file.name.substringAfterLast('.', "").lowercase(Locale.ROOT) in ARTWORK_EXTENSIONS
         }
 
-        val chosenName = chooseFolderArtworkName(images.map { it.second }) ?: return null to 0
-        val chosen = images.firstOrNull { it.second == chosenName }
-        val coverFile = chosen?.first
-        val coverUri = coverFile?.uri
-        val coverLastModified = try { coverFile?.lastModified() ?: 0 } catch (_: Exception) { 0 }
-        return coverUri to coverLastModified
-    }
-
-    /**
-     * Determines whether a document file represents a supported audio candidate.
-     */
-    fun isAudioCandidate(file: DocumentFile): Boolean {
-        val name = file.name ?: return false
-        return isAudioCandidateByNameAndMime(name, file.type)
+        val chosenName = chooseFolderArtworkName(images.map { it.name }) ?: return null to 0
+        val chosen = images.firstOrNull { it.name == chosenName } ?: return null to 0
+        return chosen.uri to chosen.lastModified
     }
 
     /**
@@ -335,6 +476,24 @@ class MusicScanner @Inject constructor(
 
         return isAudioMime || isSupportedExt
     }
+
+    /**
+     * One child returned by a directory listing.
+     *
+     * @property documentId SAF document ID, or `null` when the fallback listing
+     *   could not resolve one.
+     * @property isDirectory True for directories, determined from the provider's
+     *   MIME type (or a DocumentFile query when the MIME type is missing).
+     */
+    private data class ScannedDocument(
+        val documentId: String?,
+        val uri: Uri,
+        val name: String,
+        val mimeType: String?,
+        val size: Long,
+        val lastModified: Long,
+        val isDirectory: Boolean,
+    )
 
     /** Ordering hint declared for one audio file by a folder cue sheet. */
     private data class CueTrackHint(

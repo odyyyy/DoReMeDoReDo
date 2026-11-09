@@ -61,3 +61,17 @@ data class PlaybackTrack(
     /** Full-resolution cover used by Now Playing, or `null` when unavailable. */
     val fullArtworkUri: String? = null,
 )
+
+/**
+ * Latest artwork references indexed for one track.
+ *
+ * Media items copy artwork metadata when a queue is created, so a cover
+ * replaced on disk would stay stale on Now Playing and the Mini Player until
+ * the track is selected again. After a scan, [PlayerController] overlays these
+ * values while projecting playback state, which refreshes the UI without
+ * rebuilding the queue or interrupting playback.
+ */
+data class TrackArtwork(
+    val artworkUri: String?,
+    val fullArtworkUri: String?,
+)

@@ -22,6 +22,11 @@ interface TrackRepository {
     fun observeByFolder(folderUri: String): Flow<List<TrackEntity>>
 
     /**
+     * Observes tracks tagged with the given [albumId] grouping key.
+     */
+    fun observeByAlbumId(albumId: String): Flow<List<TrackEntity>>
+
+    /**
      * Returns tracks that belong to [folderUri].
      */
     suspend fun getByFolder(folderUri: String): List<TrackEntity>

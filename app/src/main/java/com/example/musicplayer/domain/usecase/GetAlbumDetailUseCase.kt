@@ -22,7 +22,7 @@ class GetAlbumDetailUseCase @Inject constructor(
     private val getTracksUseCase: GetTracksUseCase,
 ) {
     operator fun invoke(albumId: String): Flow<AlbumDetail?> =
-        getTracksUseCase()
+        albumTracks(albumId)
             .map { tracks ->
                 val albumTracks = tracks.filter { it.getAlbumGroupingKey() == albumId }
                 if (albumTracks.isEmpty()) return@map null
@@ -39,7 +39,26 @@ class GetAlbumDetailUseCase @Inject constructor(
                     tracks = orderedTracks,
                 )
             }
-            // Opening an album scans the whole library; a large collection must
-            // not block the frame that shows the screen.
+            // Filtering, grouping and ordering a large album must not block
+            // the frame that shows the screen.
             .flowOn(Dispatchers.Default)
+
+    /**
+     * Chooses the narrowest library query for [albumId].
+     *
+     * Scanner-produced album IDs are SHA-256-derived hex strings, so they
+     * match the indexed `albumId` column directly. A key containing `|` is the
+     * fallback `album|artist` form used for tracks without an album tag; it is
+     * not stored in a column, so those rare albums fall back to observing the
+     * library and filtering it.
+     */
+    private fun albumTracks(albumId: String): Flow<List<Track>> =
+        if (albumId.contains(FALLBACK_KEY_SEPARATOR)) {
+            getTracksUseCase()
+        } else {
+            getTracksUseCase.byAlbumId(albumId)
+        }
 }
+
+/** Separator used by `albumGroupingKey` when no tagged album ID exists. */
+private const val FALLBACK_KEY_SEPARATOR = '|'

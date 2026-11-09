@@ -5,8 +5,6 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.Column
@@ -102,25 +100,27 @@ fun AppNavigation(
             navController = navController,
             startDestination = Routes.TRACKS,
             modifier = Modifier.padding(innerPadding),
-            // Pushed screens slide in from the right while the screen below
-            // shifts slightly left, so opening a screen reads as forward motion.
-            // Top-level tab switches are lateral moves instead: they cross-fade
-            // with a subtle scale so Tracks, Albums and Settings feel like one
-            // surface changing content rather than a stack of pushed screens.
+            // A pushed screen slides a short distance in from the right and the
+            // outgoing one slides slightly left, so opening a detail screen
+            // reads as forward motion without compositing two faded layers on
+            // every frame.
+            //
+            // Top-level tab switches are a plain cross-fade: Tracks, Albums and
+            // Settings are lateral moves, and a fade avoids the extra graphics
+            // layer (and re-rasterization) a scale animation needs. Both are
+            // deliberately short, because the frame budget should go to the
+            // incoming screen's content, not to motion.
             enterTransition = {
                 if (isTabSwitch(
                         initialState.destination.route,
                         targetState.destination.route,
                     )
                 ) {
-                    fadeIn(animationSpec = tween(TAB_ENTER_ANIMATION_MS)) +
-                        scaleIn(
-                            animationSpec = tween(TAB_ENTER_ANIMATION_MS),
-                            initialScale = TAB_INITIAL_SCALE,
-                        )
+                    fadeIn(animationSpec = tween(TAB_ENTER_ANIMATION_MS))
                 } else {
-                    slideInHorizontally(animationSpec = tween(NAVIGATION_ANIMATION_MS)) { it } +
-                        fadeIn(animationSpec = tween(NAVIGATION_FADE_MS))
+                    slideInHorizontally(
+                        animationSpec = tween(NAVIGATION_ANIMATION_MS),
+                    ) { fullWidth -> fullWidth / PUSH_SLIDE_FRACTION }
                 }
             },
             exitTransition = {
@@ -129,14 +129,11 @@ fun AppNavigation(
                         targetState.destination.route,
                     )
                 ) {
-                    fadeOut(animationSpec = tween(TAB_EXIT_ANIMATION_MS)) +
-                        scaleOut(
-                            animationSpec = tween(TAB_EXIT_ANIMATION_MS),
-                            targetScale = TAB_TARGET_SCALE,
-                        )
+                    fadeOut(animationSpec = tween(TAB_EXIT_ANIMATION_MS))
                 } else {
-                    slideOutHorizontally(animationSpec = tween(NAVIGATION_ANIMATION_MS)) { it } +
-                        fadeOut(animationSpec = tween(NAVIGATION_FADE_MS))
+                    slideOutHorizontally(
+                        animationSpec = tween(NAVIGATION_ANIMATION_MS),
+                    ) { fullWidth -> -fullWidth / PUSH_SLIDE_FRACTION }
                 }
             },
             // Back returns to the previous screen immediately, with no
@@ -219,17 +216,15 @@ private fun isTabSwitch(initialRoute: String?, targetRoute: String?): Boolean {
 /** Duration of the horizontal screen slide used for push navigation. */
 private const val NAVIGATION_ANIMATION_MS = 120
 
-/** Duration of the cross-fade layered on top of the push slide. */
-private const val NAVIGATION_FADE_MS = 80
+/**
+ * Divisor applied to the screen width for the push slide. A quarter-width
+ * travel keeps the motion readable while drawing far less off-screen content
+ * than a full-width slide.
+ */
+private const val PUSH_SLIDE_FRACTION = 4
 
-/** Incoming tab fade/scale duration. */
-private const val TAB_ENTER_ANIMATION_MS = 140
+/** Incoming tab fade duration. */
+private const val TAB_ENTER_ANIMATION_MS = 120
 
 /** Outgoing tab fades out faster so the new tab becomes readable sooner. */
 private const val TAB_EXIT_ANIMATION_MS = 70
-
-/** Incoming tab starts slightly smaller and settles to full size. */
-private const val TAB_INITIAL_SCALE = 0.95f
-
-/** Outgoing tab drifts slightly larger as it fades away. */
-private const val TAB_TARGET_SCALE = 1.02f

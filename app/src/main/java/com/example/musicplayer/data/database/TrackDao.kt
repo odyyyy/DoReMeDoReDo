@@ -31,6 +31,19 @@ interface TrackDao {
     fun observeByFolder(folderUri: String): Flow<List<TrackEntity>>
 
     /**
+     * Observes the tracks tagged with [albumId].
+     *
+     * Album details use this instead of observing the whole library and
+     * filtering it on every open, so only the album's rows are read and
+     * mapped.
+     */
+    @Query(
+        "SELECT * FROM tracks WHERE albumId = :albumId " +
+            "ORDER BY title COLLATE NOCASE ASC",
+    )
+    fun observeByAlbumId(albumId: String): Flow<List<TrackEntity>>
+
+    /**
      * Returns tracks belonging to the given [folderUri].
      */
     @Query("SELECT * FROM tracks WHERE folderUri = :folderUri")

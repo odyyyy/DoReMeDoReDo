@@ -37,9 +37,19 @@ class MainActivity : ComponentActivity() {
 
         // Connecting binds the playback service, which creates the single
         // ExoPlayer, its renderers and the MediaSession on the main thread.
-        // Deferring it keeps that work out of the synchronous onCreate/setContent
-        // startup path; commands issued earlier are queued by PlayerController
-        // and replayed once the connection is ready.
-        window.decorView.post { playerController.connect() }
+        // It is deferred past the first frames so startup composition, the
+        // initial Room read and the first draw are not competing with service
+        // creation for the main thread. Commands issued earlier are queued by
+        // PlayerController and replayed once the connection is ready, so a tap
+        // during this window still starts playback.
+        window.decorView.postDelayed(
+            { playerController.connect() },
+            PLAYBACK_CONNECT_DELAY_MS,
+        )
+    }
+
+    private companion object {
+        /** Delay before binding the playback service after the first frame. */
+        const val PLAYBACK_CONNECT_DELAY_MS = 250L
     }
 }

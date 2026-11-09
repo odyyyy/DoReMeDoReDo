@@ -31,9 +31,11 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
 
+    androidResources {
         // Keep only the English locale to strip unused alternative resources.
-        resConfigs("en")
+        localeFilters += "en"
     }
 
     signingConfigs {
@@ -62,7 +64,6 @@ android {
             signingConfig = signingConfigs.findByName("release")
             optimization {
                 enable = true
-                packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
             }
         }
     }
@@ -76,6 +77,13 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            // Metadata files that are not read at runtime but are copied into
+            // the APK by dependency jars (common with Kotlin/AndroidX).
+            excludes += "/META-INF/DEPENDENCIES"
+            excludes += "/META-INF/INDEX.LIST"
+            excludes += "/META-INF/LICENSE*"
+            excludes += "/META-INF/NOTICE*"
+            excludes += "**/*.version"
         }
     }
     sourceSets {

@@ -217,6 +217,9 @@ class ScanCoordinator @Inject constructor(
                         metadata = result.metadata,
                         // Preserve first-indexed time across rescans.
                         dateAdded = existing?.dateAdded ?: now,
+                        // Record the cover version this row was read from so a
+                        // replaced folder cover is detected on the next scan.
+                        artworkFileLastModified = file.artworkFileLastModified,
                         // This file is being (re)read, so both artwork references
                         // are rebuilt from the freshly extracted bytes. Re-storing
                         // is content addressed: identical bytes keep the same URI
@@ -289,5 +292,6 @@ class ScanCoordinator @Inject constructor(
         fileSize = file.size,
         lastModified = file.lastModified,
         dateAdded = indexedAt,
+        artworkFileLastModified = file.artworkFileLastModified,
     )
 }

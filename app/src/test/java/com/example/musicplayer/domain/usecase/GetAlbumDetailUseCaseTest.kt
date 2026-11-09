@@ -95,6 +95,22 @@ class GetAlbumDetailUseCaseTest {
     }
 
     @Test
+    fun `GetAlbumDetailUseCase resolves a fallback album key`() = runTest {
+        val entities = listOf(
+            trackEntity("uri://1", "Track 1", artist = "Artist A", album = "Album A"),
+            trackEntity("uri://2", "Track 2", artist = "Artist A", album = "Album A"),
+            trackEntity("uri://3", "Track 3", artist = "Artist B", album = "Album A"),
+        )
+        val useCase = GetAlbumDetailUseCase(GetTracksUseCase(FakeTrackRepository(entities)))
+
+        val detail = useCase("album a|artist a").first()
+
+        assertNotNull(detail)
+        assertEquals("album a|artist a", detail!!.album.id)
+        assertEquals(listOf("uri://1", "uri://2"), detail.tracks.map { it.uri })
+    }
+
+    @Test
     fun `GetAlbumDetailUseCase returns null for unknown albumId`() = runTest {
         val entities = listOf(
             trackEntity("uri://1", "Track 1", albumId = "id-album-1"),

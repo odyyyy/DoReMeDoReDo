@@ -140,6 +140,8 @@ internal class FakeTrackRepository(
 ) : TrackRepository {
     override fun observeAll(): Flow<List<TrackEntity>> = flowOf(entities)
     override fun observeByFolder(folderUri: String): Flow<List<TrackEntity>> = flowOf(entities)
+    override fun observeByAlbumId(albumId: String): Flow<List<TrackEntity>> =
+        flowOf(entities.filter { it.albumId == albumId })
     override suspend fun getByFolder(folderUri: String): List<TrackEntity> = entities
     override suspend fun getUrisByFolder(folderUri: String): List<String> = entities.map { it.uri }
     override suspend fun getAll(): List<TrackEntity> = entities

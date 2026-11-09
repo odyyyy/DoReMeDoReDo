@@ -3,6 +3,7 @@ package com.example.musicplayer.presentation.library
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.musicplayer.data.scanner.ScanOutcome
 import com.example.musicplayer.data.scanner.ScanResult
 import com.example.musicplayer.data.scanner.ScanState
 import com.example.musicplayer.domain.model.CompletedScan
@@ -17,6 +18,7 @@ import com.example.musicplayer.domain.usecase.GetTracksUseCase
 import com.example.musicplayer.domain.usecase.ScanMusicFolderUseCase
 import com.example.musicplayer.domain.usecase.SetSelectedFolderUseCase
 import com.example.musicplayer.player.PlayerController
+import com.example.musicplayer.player.TrackArtwork
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -328,8 +330,39 @@ class LibraryViewModel @Inject constructor(
         // Launched on viewModelScope (not inside the state collector) so a
         // running scan survives further folder/state re-emissions.
         viewModelScope.launch {
-            scanMusicFolderUseCase(Uri.parse(folder.uri))
+            when (val outcome = scanMusicFolderUseCase(Uri.parse(folder.uri))) {
+                is ScanOutcome.Executed -> {
+                    // A completed scan may have added, replaced, or removed
+                    // covers. The queue's media items copied the old artwork
+                    // metadata when they were created, so refresh the player's
+                    // artwork overlay now. Failed scans leave the indexed
+                    // library untouched and therefore need no refresh.
+                    if (outcome.state is ScanState.Completed) {
+                        refreshQueueArtwork()
+                    }
+                }
+
+                ScanOutcome.Skipped -> Unit
+            }
         }
+    }
+
+    /**
+     * Re-reads the freshly indexed artwork and hands it to the player.
+     *
+     * This is a one-shot read instead of [domainTracks] on purpose: the shared
+     * observation has a replay cache that may still hold pre-scan rows. Only an
+     * active queue needs updating, so an idle player does no work at all.
+     */
+    private suspend fun refreshQueueArtwork() {
+        if (playerController.state.value.queue.items.isEmpty()) return
+        val artworkByUri = getTracksUseCase.currentTracks().associate { track ->
+            track.uri to TrackArtwork(
+                artworkUri = track.artworkUri,
+                fullArtworkUri = track.fullArtworkUri,
+            )
+        }
+        playerController.updateQueueArtwork(artworkByUri)
     }
 
     fun onFolderSelected(uri: Uri) {

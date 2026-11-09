@@ -22,6 +22,9 @@ class TrackRepositoryImpl @Inject constructor(
     override fun observeByFolder(folderUri: String): Flow<List<TrackEntity>> =
         trackDao.observeByFolder(folderUri)
 
+    override fun observeByAlbumId(albumId: String): Flow<List<TrackEntity>> =
+        trackDao.observeByAlbumId(albumId)
+
     override suspend fun getByFolder(folderUri: String): List<TrackEntity> =
         trackDao.getByFolder(folderUri)
 
