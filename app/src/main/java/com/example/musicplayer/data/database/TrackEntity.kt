@@ -25,6 +25,9 @@ import androidx.room.PrimaryKey
  * @property fullArtworkUri Optional reference to the full-resolution artwork
  *   used by Now Playing. It may be the same file as [artworkUri] when the source
  *   image is already small, and is `null` when the track has no artwork.
+ * @property cueStartOffsetMs Start position within a single-file CUE source,
+ *   in milliseconds, or `0` when the track is not a CUE split. Playback seeks
+ *   here when this track begins.
  * @property artworkScanned True once the scanner has tried to read this track's
  *   artwork. Rows indexed before artwork extraction existed start as `false`,
  *   so the next scan backfills them; a track that genuinely has no artwork is
@@ -70,6 +73,8 @@ data class TrackEntity(
     val albumId: String?,
     val artworkUri: String?,
     val fullArtworkUri: String? = null,
+    @ColumnInfo(defaultValue = "0")
+    val cueStartOffsetMs: Long = 0,
     @ColumnInfo(defaultValue = "0")
     val artworkScanned: Boolean = false,
     @ColumnInfo(defaultValue = "0")

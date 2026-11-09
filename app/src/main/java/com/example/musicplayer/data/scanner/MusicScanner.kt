@@ -185,21 +185,57 @@ class MusicScanner @Inject constructor(
                     if (entry.isDirectory) {
                         traverse(entry.uri, entry.documentId, currentDepth + 1)
                     } else if (isAudioCandidateByNameAndMime(entry.name, entry.mimeType)) {
-                        val cueHint = cueHints[CueSheetParser.normalizeFileName(entry.name)]
-                        discoveredFiles.add(
-                            DiscoveredAudioFile(
-                                uri = entry.uri,
-                                name = entry.name,
-                                mimeType = entry.mimeType,
-                                size = entry.size,
-                                lastModified = entry.lastModified,
-                                parentFolderUri = dirUri,
-                                artworkFileUri = folderArtworkUri,
-                                artworkFileLastModified = folderArtworkLastModified,
-                                cueTrackNumber = cueHint?.trackNumber,
-                                cueDiscNumber = cueHint?.discNumber,
+                        val cueFile = cueHints[CueSheetParser.normalizeFileName(entry.name)]
+                        // A cue FILE block with several tracks describes a
+                        // single-file album: emit one DiscoveredAudioFile per
+                        // cue track so each becomes a separate playable entry.
+                        if (cueFile != null && cueFile.tracks.size > 1) {
+                            for (cueTrack in cueFile.tracks) {
+                                // Give every split track a unique URI so it
+                                // persists as its own Room row instead of
+                                // collapsing onto the shared audio file. The
+                                // cue fragment is dropped before playback.
+                                val splitUri = entry.uri.buildUpon()
+                                    .fragment("cue/${cueTrack.number}")
+                                    .build()
+                                discoveredFiles.add(
+                                    DiscoveredAudioFile(
+                                        uri = splitUri,
+                                        name = entry.name,
+                                        mimeType = entry.mimeType,
+                                        size = entry.size,
+                                        lastModified = entry.lastModified,
+                                        parentFolderUri = dirUri,
+                                        artworkFileUri = folderArtworkUri,
+                                        artworkFileLastModified = folderArtworkLastModified,
+                                        cueTrackNumber = cueTrack.number,
+                                        cueDiscNumber = cueFile.discNumber,
+                                        cueTitle = cueTrack.title,
+                                        cueAlbum = cueFile.albumTitle,
+                                        cueArtist = cueFile.performer,
+                                        cueStartOffsetMs = cueTrack.startOffsetMs,
+                                    )
+                                )
+                            }
+                        } else {
+                            val track = cueFile?.tracks?.singleOrNull()
+                            discoveredFiles.add(
+                                DiscoveredAudioFile(
+                                    uri = entry.uri,
+                                    name = entry.name,
+                                    mimeType = entry.mimeType,
+                                    size = entry.size,
+                                    lastModified = entry.lastModified,
+                                    parentFolderUri = dirUri,
+                                    artworkFileUri = folderArtworkUri,
+                                    artworkFileLastModified = folderArtworkLastModified,
+                                    cueTrackNumber = track?.number,
+                                    cueDiscNumber = cueFile?.discNumber,
+                                    cueAlbum = cueFile?.albumTitle,
+                                    cueArtist = cueFile?.performer,
+                                )
                             )
-                        )
+                        }
                     }
                 } catch (e: Exception) {
                     warnings.add(
@@ -359,17 +395,18 @@ class MusicScanner @Inject constructor(
 
     /**
      * Reads the cue sheets of one folder and maps each audio file name to the
-     * position declared for it.
+     * cue tracks declared for it.
      *
-     * Only `FILE` blocks that contain exactly one `TRACK` are used. A block
-     * with several tracks describes a single audio file that the app plays as
-     * one item, so applying its first track number would be wrong.
+     * `FILE` blocks with exactly one track are used as ordering hints (the app
+     * plays the whole file as one item). `FILE` blocks with several tracks
+     * describe a single-file album: each track in the block becomes a separate
+     * playable library entry, split from the shared audio file.
      */
     private fun readCueHints(
         files: List<ScannedDocument>,
         warnings: MutableList<String>,
-    ): Map<String, CueTrackHint> {
-        val hints = mutableMapOf<String, CueTrackHint>()
+    ): Map<String, CueFileInfo> {
+        val hints = mutableMapOf<String, CueFileInfo>()
 
         for (file in files) {
             if (file.isDirectory) continue
@@ -382,12 +419,21 @@ class MusicScanner @Inject constructor(
                 val sheet = CueSheetParser.parse(text)
 
                 for (cueFile in sheet.files) {
-                    val track = cueFile.tracks.singleOrNull() ?: continue
+                    if (cueFile.tracks.isEmpty()) continue
                     val key = CueSheetParser.normalizeFileName(cueFile.fileName)
                     if (key.isEmpty() || key in hints) continue
-                    hints[key] = CueTrackHint(
-                        trackNumber = track.number,
+                    hints[key] = CueFileInfo(
+                        fileName = cueFile.fileName,
                         discNumber = sheet.discNumber,
+                        albumTitle = sheet.albumTitle,
+                        performer = sheet.performer,
+                        tracks = cueFile.tracks.map { track ->
+                            CueTrackInfo(
+                                number = track.number,
+                                title = track.title,
+                                startOffsetMs = track.startOffsetMs,
+                            )
+                        },
                     )
                 }
             } catch (e: Exception) {
@@ -499,5 +545,32 @@ class MusicScanner @Inject constructor(
     private data class CueTrackHint(
         val trackNumber: Int,
         val discNumber: Int?,
+    )
+
+    /**
+     * Full cue description for one audio file referenced by a cue sheet.
+     *
+     * When a `FILE` block holds exactly one track, [tracks] has one entry and the
+     * file is played as one item (the cue only supplies an ordering hint). When a
+     * `FILE` block holds several tracks, the audio file is a single-file album:
+     * [MusicScanner] emits one [DiscoveredAudioFile] per cue track so each cue
+     * track becomes a separate playable library entry.
+     */
+    private data class CueFileInfo(
+        val fileName: String,
+        val discNumber: Int?,
+        val albumTitle: String?,
+        val performer: String?,
+        val tracks: List<CueTrackInfo>,
+    )
+
+    /**
+     * One cue track declared inside a `FILE` block, including the start offset
+     * and title needed to split a single-file album into separate playable tracks.
+     */
+    private data class CueTrackInfo(
+        val number: Int,
+        val title: String?,
+        val startOffsetMs: Long,
     )
 }

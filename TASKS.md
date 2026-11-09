@@ -1231,6 +1231,57 @@ Finish the user-reported performance work: make app start and Albums → Album d
 
 ---
 
+## Task 25 — Split single-file CUE albums into separate tracks
+
+**Status:** DONE  
+**Priority:** High  
+**Depends on:** Tasks 11, 22
+
+### Goal
+
+Split audio files described by a single-file CUE sheet (one audio file with multiple `TRACK` entries) into separate playable library tracks, each grouped under the cue sheet's album/artist instead of collapsing into one "Unknown Album" track.
+
+### Work
+
+- [x] `CueSheetParser` parses `INDEX 01 MM:SS:FF` into per-track `startOffsetMs` and exposes `parseTimestampMs`; captures sheet-level `albumTitle`/`performer`.
+- [x] `DiscoveredAudioFile` gained `cueTitle`, `cueAlbum`, `cueArtist`, and `cueStartOffsetMs` to describe each split track.
+- [x] `TrackEntity` gained a `cueStartOffsetMs` column (DB v6, auto-migration 5→6); `Track` domain model and both mappers carry it.
+- [x] `MusicScanner` emits one `DiscoveredAudioFile` per cue track when a `FILE` block holds several tracks. Each split track gets a unique URI (`...#cue/<n>`) so it persists as its own Room row; the fragment is stripped before the URI is passed to `MediaMetadataRetriever`/`ExoPlayer` and before grouping siblings for duration derivation.
+- [x] `MetadataExtractor` groups split tracks by base URI (fragment stripped) so they share one metadata read and derive each track's duration from sibling start offsets (last track runs to end of file). It prefers the cue sheet's title/artist/album for cue-described tracks (falling back to the audio file's tags). Artwork is read once from the shared source file and shared across all split tracks.
+- [x] `TrackMediaItem.toMediaItem()` carries `cueStartOffsetMs` in `EXTRA_CUE_START_OFFSET_MS` media item extras; strips the `#cue/<n>` fragment before passing the URI to ExoPlayer (full URI stays the media ID).
+- [x] `PlayerController` seeks to the cue start offset when a split track begins: in `setQueue` (start position), `seekToQueueItem`, `togglePlayPause` (restart from end), and via `EVENT_MEDIA_ITEM_TRANSITION` (next/previous/queue transitions).
+- [x] `ScanCoordinator` always re-reads CUE-described tracks on rescan so cue-based album/artist replace stale `Unknown Album` rows from before the fix.
+- [x] No separate album table: split tracks are ordinary rows keyed by their unique URI, flowing through existing album grouping, queue, and playback paths.
+
+### Acceptance criteria
+
+- A single-file CUE sheet with N tracks produces N library tracks with cue-derived titles, positions, **durations**, and the cue sheet's album/artist (not "Unknown Album").
+- Split tracks sharing one source file are grouped into one album (same album/artist) with each track's own duration.
+- Playing any split track starts at that track's cue offset, not the start of the shared audio file; Next/Previous/queue selection all respect the offset.
+- Now Playing shows each split track's own duration and a seek bar limited to that track's cue interval (not the whole album).
+- Single-track CUE `FILE` blocks still act as ordering hints without splitting.
+- Malformed or unreadable CUE sheets do not abort the scan.
+- A Rescan replaces stale `Unknown Album` rows with properly named CUE tracks/albums.
+- `./gradlew testDebugUnitTest assembleDebug` succeed.
+
+### Validation performed
+
+- `./gradlew testDebugUnitTest` -> all tests pass.
+- `./gradlew assembleDebug` -> BUILD SUCCESSFUL.
+
+### Known limitation
+
+- A Rescan is needed to replace pre-existing `Unknown Album` rows after the fix.
+
+### Playback transition notes
+
+- `publish(player, refreshQueue, item)` now accepts an optional current item. When called
+  from `Player.Listener.onMediaItemTransition`, the `currentItem` callback parameter is
+  passed directly, because `player.currentMediaItem` may still lag behind Media3's
+  transition and return the previous track.
+
+---
+
 ## Execution rules
 
 1. Execute tasks in order unless a dependency requires a documented adjustment.

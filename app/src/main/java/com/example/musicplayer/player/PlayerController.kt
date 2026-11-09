@@ -4,11 +4,13 @@ import android.content.ComponentName
 import android.content.Context
 import android.os.Bundle
 import android.util.Log
+import androidx.annotation.OptIn
 import androidx.core.content.ContextCompat
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.example.musicplayer.domain.model.Track
@@ -39,6 +41,7 @@ import kotlinx.coroutines.launch
  * and replayed once the connection is ready, so selecting a track immediately
  * after launch still starts playback.
  */
+@OptIn(UnstableApi::class)
 @Singleton
 class PlayerController @Inject constructor(
     @param:ApplicationContext private val context: Context,
@@ -59,11 +62,19 @@ class PlayerController @Inject constructor(
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var positionUpdates: Job? = null
 
+    /**
+     * Cue start offset (ms within the shared audio file) of the track currently
+     * loaded by the player. Zero for regular tracks. Used by [publish] and seeking
+     * to project ExoPlayer's whole-file position onto the current CUE track's interval.
+     */
+    private var currentCueOffsetMs: Long = 0
+
     /** Commands that arrived before the controller connected. */
     private val pendingCommands = mutableListOf<(MediaController) -> Unit>()
 
     /** Last playback failure; kept until a new queue starts or it is dismissed. */
-    private var lastError: String? = null
+    var lastError: String? = null
+        private set
 
     /**
      * Last projected playlist. Reused for position-only publishes so a large
@@ -88,9 +99,20 @@ class PlayerController @Inject constructor(
     private val artworkOverrides = HashMap<String, TrackArtwork>()
 
     private val playerListener = object : Player.Listener {
+        override fun onMediaItemTransition(
+            currentItem: MediaItem?,
+            reason: Int,
+        ) {
+            if (currentItem.isCueSplit) {
+                currentCueOffsetMs = currentItem.cueStartOffsetMs
+                controller?.seekTo(currentCueOffsetMs)
+            } else {
+                currentCueOffsetMs = 0L
+            }
+            controller?.let { publish(it, refreshQueue = true, currentItem) }
+        }
+
         override fun onEvents(player: Player, events: Player.Events) {
-            // The shuffle order changes when shuffle is toggled or the playlist
-            // itself changes, so refresh the projection on those events only.
             if (events.containsAny(
                     Player.EVENT_TIMELINE_CHANGED,
                     Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED,
@@ -99,17 +121,10 @@ class PlayerController @Inject constructor(
                 refreshShuffleOrder(player)
             }
 
-            // onEvents fires for every player event, including frequent ones
-            // that cannot change the queue (buffering, playing state, metadata,
-            // volume, errors, ...). Only a timeline/current-item/shuffle change
-            // can alter the projection, so only those rebuild it: rebuilding a
-            // 10,000-item queue allocates a 10,000-element list and projects
-            // every media item again, on the main thread.
             publish(
                 player,
                 refreshQueue = events.containsAny(
                     Player.EVENT_TIMELINE_CHANGED,
-                    Player.EVENT_MEDIA_ITEM_TRANSITION,
                     Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED,
                 ),
             )
@@ -154,8 +169,6 @@ class PlayerController @Inject constructor(
                         _state.value = _state.value.copy(isConnected = true)
                         flushPendingCommands(mediaController)
                         publish(mediaController, refreshQueue = true)
-                        // The session may already be shuffling (UI reattached
-                        // while playback continues in the background).
                         refreshShuffleOrder(mediaController)
                         startPositionUpdates()
                     }
@@ -172,18 +185,6 @@ class PlayerController @Inject constructor(
 
     /**
      * Replaces the player queue with [tracks] and starts at [startIndex].
-     *
-     * This is the single entry point for starting playback. The queue rules are:
-     * - The whole collection passed in becomes the queue, in the given order.
-     *   Selecting a track from the Library uses the currently displayed,
-     *   filtered and sorted track list; selecting from Album Details uses the
-     *   album's tracks.
-     * - Playback starts at the position of the selected track ([startIndex]),
-     *   clamped to the queue bounds.
-     * - Previous/Next then walk the Media3 playlist, so the item index the UI
-     *   observes always matches the player.
-     *
-     * A single track is just a one-item playlist, so the same path serves both.
      */
     fun setQueue(tracks: List<Track>, startIndex: Int) {
         if (tracks.isEmpty()) return
@@ -192,8 +193,13 @@ class PlayerController @Inject constructor(
         val index = startIndex.coerceIn(0, items.lastIndex)
         lastError = null
 
+        val startTrack = tracks[index]
+        val isCue = startTrack.uri.contains("#cue/") || startTrack.cueStartOffsetMs > 0L
+        val startPosition = if (isCue) startTrack.cueStartOffsetMs else C.TIME_UNSET
+        currentCueOffsetMs = if (isCue) startTrack.cueStartOffsetMs else 0L
+
         withController { mediaController ->
-            mediaController.setMediaItems(items, index, 0L)
+            mediaController.setMediaItems(items, index, startPosition)
             mediaController.prepare()
             mediaController.play()
         }
@@ -201,10 +207,6 @@ class PlayerController @Inject constructor(
 
     /**
      * Appends [track] to the end of the queue without changing playback.
-     *
-     * This is the documented default for "Add to queue": new items always go to
-     * the end of the queue and the current item keeps playing. When nothing is
-     * loaded yet the item is queued but playback does not start on its own.
      */
     fun addToQueue(track: Track) = withController { mediaController ->
         mediaController.addMediaItem(track.toMediaItem())
@@ -212,9 +214,6 @@ class PlayerController @Inject constructor(
 
     /**
      * Inserts [track] immediately after the current item so it plays next.
-     *
-     * When the queue is empty the item becomes the only queue entry; playback
-     * still does not start on its own.
      */
     fun playNext(track: Track) = withController { mediaController ->
         val index = (mediaController.currentMediaItemIndex + 1)
@@ -224,13 +223,9 @@ class PlayerController @Inject constructor(
 
     /**
      * Moves the queue item at [fromIndex] to [toIndex].
-     *
-     * Delegates to Media3, which reorders the playlist while keeping the current
-     * item and its playback position correct.
      */
     fun moveQueueItem(fromIndex: Int, toIndex: Int) = withController { mediaController ->
         val count = mediaController.mediaItemCount
-        // Queue positions may be shuffled; map them back to playlist indices.
         val from = cachedQueue.playlistIndexAt(fromIndex)
         val to = cachedQueue.playlistIndexAt(toIndex)
         if (from == to || from !in 0 until count || to !in 0 until count) {
@@ -241,9 +236,6 @@ class PlayerController @Inject constructor(
 
     /**
      * Removes the queue item at [index].
-     *
-     * Media3 handles removal of the current item by moving playback to the next
-     * (or previous) item, so the observed index stays consistent with the player.
      */
     fun removeQueueItem(index: Int) = withController { mediaController ->
         val playlistIndex = cachedQueue.playlistIndexAt(index)
@@ -254,17 +246,20 @@ class PlayerController @Inject constructor(
 
     /**
      * Jumps playback to the queue item at [index] and starts it.
-     *
-     * Selecting a queue row is an explicit request to hear that item, so a paused
-     * player resumes; nothing changes when the index is out of bounds.
      */
     fun seekToQueueItem(index: Int) = withController { mediaController ->
-        // The Queue screen shows the shuffled order while shuffle is on, so a
-        // tapped row has to be translated to its real playlist index.
         val playlistIndex = cachedQueue.playlistIndexAt(index)
         if (playlistIndex !in 0 until mediaController.mediaItemCount) return@withController
 
-        mediaController.seekToDefaultPosition(playlistIndex)
+        val item = mediaController.getMediaItemAt(playlistIndex)
+        if (item.isCueSplit) {
+            val offset = item.cueStartOffsetMs
+            currentCueOffsetMs = offset
+            mediaController.seekTo(playlistIndex, offset)
+        } else {
+            currentCueOffsetMs = 0L
+            mediaController.seekToDefaultPosition(playlistIndex)
+        }
         if (!mediaController.isPlaying) {
             if (mediaController.playbackState == Player.STATE_IDLE) {
                 mediaController.prepare()
@@ -285,8 +280,13 @@ class PlayerController @Inject constructor(
         if (mediaController.isPlaying) {
             mediaController.pause()
         } else {
+            val current = mediaController.currentMediaItem
             if (mediaController.playbackState == Player.STATE_ENDED) {
-                mediaController.seekToDefaultPosition()
+                if (current.isCueSplit) {
+                    mediaController.seekTo(currentCueOffsetMs)
+                } else {
+                    mediaController.seekToDefaultPosition()
+                }
             }
             if (mediaController.playbackState == Player.STATE_IDLE) {
                 mediaController.prepare()
@@ -295,31 +295,72 @@ class PlayerController @Inject constructor(
         }
     }
 
-    fun seekTo(positionMs: Long) = withController {
-        it.seekTo(positionMs.coerceAtLeast(0L))
+    fun seekTo(positionMs: Long) = withController { mediaController ->
+        val current = mediaController.currentMediaItem
+        val absolutePosition = if (current.isCueSplit) {
+            currentCueOffsetMs + positionMs.coerceAtLeast(0L)
+        } else {
+            positionMs.coerceAtLeast(0L)
+        }
+        mediaController.seekTo(absolutePosition)
     }
 
     fun seekToNext() = withController { mediaController ->
-        mediaController.seekToNext()
+        val current = mediaController.currentMediaItem
+        if (current.isCueSplit) {
+            if (mediaController.hasNextMediaItem()) {
+                val nextIndex = mediaController.nextMediaItemIndex
+                if (nextIndex != C.INDEX_UNSET) {
+                    val nextItem = mediaController.getMediaItemAt(nextIndex)
+                    val nextOffset = nextItem.cueStartOffsetMs
+                    currentCueOffsetMs = nextOffset
+                    mediaController.seekTo(nextIndex, nextOffset)
+                } else {
+                    mediaController.seekToNext()
+                }
+            } else if (mediaController.repeatMode == Player.REPEAT_MODE_ALL) {
+                val firstItem = mediaController.getMediaItemAt(0)
+                val firstOffset = firstItem.cueStartOffsetMs
+                currentCueOffsetMs = firstOffset
+                mediaController.seekTo(0, firstOffset)
+            }
+        } else {
+            mediaController.seekToNext()
+        }
         reloadIfFailed(mediaController)
     }
 
     /**
-     * Media3 applies the required previous-button rule: restart the current
-     * item after ~3 seconds, otherwise move to the previous playlist item.
+     * Applies the required previous-button rule: restart the current item after ~3 seconds,
+     * otherwise move to the previous playlist item.
      */
     fun seekToPrevious() = withController { mediaController ->
-        mediaController.seekToPrevious()
+        val current = mediaController.currentMediaItem
+        if (current.isCueSplit) {
+            val rawPositionMs = mediaController.currentPosition.validOrZero()
+            val currentTrackPositionMs = (rawPositionMs - currentCueOffsetMs).coerceAtLeast(0L)
+            if (currentTrackPositionMs > 3_000L) {
+                mediaController.seekTo(currentCueOffsetMs)
+            } else if (mediaController.hasPreviousMediaItem()) {
+                val prevIndex = mediaController.previousMediaItemIndex
+                if (prevIndex != C.INDEX_UNSET) {
+                    val prevItem = mediaController.getMediaItemAt(prevIndex)
+                    val prevOffset = prevItem.cueStartOffsetMs
+                    currentCueOffsetMs = prevOffset
+                    mediaController.seekTo(prevIndex, prevOffset)
+                } else {
+                    mediaController.seekTo(currentCueOffsetMs)
+                }
+            } else {
+                mediaController.seekTo(currentCueOffsetMs)
+            }
+        } else {
+            mediaController.seekToPrevious()
+        }
         reloadIfFailed(mediaController)
     }
 
-    /**
-     * Enables or disables Media3 shuffle mode.
-     *
-     * Shuffle only changes the order in which the existing playlist is
-     * traversed; the playlist itself (and therefore the queue projection shown
-     * by the UI) keeps its original order, exactly like Media3.
-     */
+    /** Enables or disables Media3 shuffle mode. */
     fun setShuffleModeEnabled(enabled: Boolean) = withController { mediaController ->
         mediaController.shuffleModeEnabled = enabled
     }
@@ -340,15 +381,7 @@ class PlayerController @Inject constructor(
         mediaController.repeatMode = current.next().toPlayerRepeatMode()
     }
 
-    /**
-     * Applies artwork indexed by the latest scan to the player projection.
-     *
-     * Keys are track URIs; a `null` value clears any previous override for
-     * that URI. Only the state published to the UI changes, so a replaced
-     * cover cannot interrupt or reload the current track. The media
-     * notification keeps the artwork present when its item was loaded until
-     * that item is loaded again.
-     */
+    /** Applies artwork indexed by the latest scan to the player projection. */
     fun updateQueueArtwork(artworkByUri: Map<String, TrackArtwork?>) {
         artworkOverrides.clear()
         for ((uri, artwork) in artworkByUri) {
@@ -365,15 +398,6 @@ class PlayerController @Inject constructor(
             ?: run { _state.value = _state.value.copy(playbackError = null) }
     }
 
-    /**
-     * Loads the item a seek just moved to when the player is sitting idle.
-     *
-     * A track that cannot be read (its file was removed, or access to the folder
-     * was revoked) leaves ExoPlayer in [Player.STATE_IDLE] with an error, and a
-     * seek alone does not make it prepare again. Without this the Next and
-     * Previous buttons would move the queue and the artwork while staying silent
-     * on a perfectly playable track.
-     */
     private fun reloadIfFailed(mediaController: MediaController) {
         if (mediaController.playbackState == Player.STATE_IDLE) {
             mediaController.prepare()
@@ -391,14 +415,6 @@ class PlayerController @Inject constructor(
         connect()
     }
 
-    /**
-     * Runs a player command on the controller's application thread.
-     *
-     * [MediaController] rejects calls made from any other thread, so commands
-     * are marshalled through the main dispatcher. `Dispatchers.Main.immediate`
-     * executes inline when the caller is already on the main thread, so UI
-     * commands stay synchronous while tests and other callers are still safe.
-     */
     private fun runCommand(mediaController: MediaController, command: (MediaController) -> Unit) {
         scope.launch {
             if (controller !== mediaController) return@launch
@@ -435,39 +451,64 @@ class PlayerController @Inject constructor(
         }
     }
 
-    /**
-     * Publishes a fresh [PlaybackState] snapshot.
-     *
-     * [refreshQueue] rebuilds the queue projection from the player. It is set
-     * only for playlist/timeline/track-transition events; the periodic position
-     * updates and the many other player events reuse the cached queue so the
-     * queue list is not reallocated on every tick.
-     */
-    private fun publish(player: Player, refreshQueue: Boolean) {
-        val durationMs = player.duration.validOrZero()
-        val item = player.currentMediaItem
+    /** Publishes a fresh [PlaybackState] snapshot. */
+    private fun publish(player: Player, refreshQueue: Boolean, item: MediaItem? = null) {
+        val mediaItem = item ?: player.currentMediaItem
+        val trackDurationMs = mediaItem?.mediaMetadata?.durationMs ?: 0L
+        val fileDurationMs = player.duration.validOrZero()
 
-        // A track that failed can be left behind by pressing play or Next; once
-        // audio is running again the stale message must not stay on screen.
+        val isCue = mediaItem.isCueSplit
+        val durationMs = if (isCue && trackDurationMs > 0L) {
+            trackDurationMs
+        } else if (fileDurationMs > 0L) {
+            fileDurationMs
+        } else {
+            trackDurationMs
+        }
+
+        val rawPositionMs = player.currentPosition.validOrZero()
+        val positionMs = if (isCue) {
+            (rawPositionMs - currentCueOffsetMs).coerceIn(0L, durationMs)
+        } else {
+            rawPositionMs
+        }
+
+        // Automatic transition when a CUE track finishes playing:
+        if (isCue && player.isPlaying && trackDurationMs > 0L) {
+            val trackEndMs = currentCueOffsetMs + trackDurationMs
+            if (rawPositionMs >= trackEndMs - 150L) {
+                if (player.hasNextMediaItem()) {
+                    player.seekToNext()
+                } else {
+                    when (player.repeatMode) {
+                        Player.REPEAT_MODE_ONE -> player.seekTo(currentCueOffsetMs)
+                        Player.REPEAT_MODE_ALL -> player.seekTo(0, C.TIME_UNSET)
+                        else -> {
+                            player.pause()
+                            player.seekTo(trackEndMs)
+                        }
+                    }
+                }
+            }
+        }
+
         if (lastError != null && player.isPlaying) {
             lastError = null
         }
 
-        // The size check is an O(1) safety net: a playlist change must never be
-        // missed by the projection even if its event was coalesced away.
         if (refreshQueue || cachedQueue.items.size != player.mediaItemCount) {
             cachedQueue = buildQueue(player)
         }
 
         _state.value = PlaybackState(
             isConnected = true,
-            currentTrack = item?.toPlaybackTrack(
+            currentTrack = mediaItem?.toPlaybackTrack(
                 durationOverrideMs = durationMs.takeIf { it > 0L },
             ),
             isPlaying = player.isPlaying,
             isBuffering = player.playbackState == Player.STATE_BUFFERING,
             durationMs = durationMs,
-            positionMs = player.currentPosition.validOrZero(),
+            positionMs = positionMs,
             hasNext = player.hasNextMediaItem(),
             hasPrevious = player.hasPreviousMediaItem(),
             shuffleModeEnabled = player.shuffleModeEnabled,
@@ -478,13 +519,6 @@ class PlayerController @Inject constructor(
         )
     }
 
-    /**
-     * Asks the service for the current shuffle traversal order.
-     *
-     * The request is read-only and asynchronous; once the order arrives the
-     * queue is rebuilt so the Queue screen shows the order shuffle will
-     * actually play. While shuffle is off the cached order is dropped.
-     */
     private fun refreshShuffleOrder(player: Player) {
         val mediaController = player as? MediaController ?: return
         if (!player.shuffleModeEnabled) {
@@ -517,7 +551,6 @@ class PlayerController @Inject constructor(
         )
     }
 
-    /** Projects the player's playlist and current index into a [PlaybackQueue]. */
     private fun buildQueue(player: Player): PlaybackQueue {
         val count = player.mediaItemCount
         if (count == 0) return PlaybackQueue()
@@ -558,9 +591,6 @@ class PlayerController @Inject constructor(
             title = mediaMetadata.title?.toString().orEmpty(),
             artist = mediaMetadata.artist?.toString(),
             album = mediaMetadata.albumTitle?.toString(),
-            // An override wins even when its URI is null: that is how a cover
-            // removed from the library is cleared instead of falling back to
-            // the stale URI stored in the media item.
             artworkUri = if (artwork != null) {
                 artwork.artworkUri
             } else {
@@ -575,6 +605,17 @@ class PlayerController @Inject constructor(
             },
         )
     }
+
+    private val MediaItem?.isCueSplit: Boolean
+        get() {
+            if (this == null) return false
+            val extras = mediaMetadata.extras
+            val hasCueExtra = extras?.containsKey(EXTRA_CUE_START_OFFSET_MS) == true
+            return mediaId.contains("#cue/") || hasCueExtra
+        }
+
+    private val MediaItem?.cueStartOffsetMs: Long
+        get() = this?.mediaMetadata?.extras?.getLong(EXTRA_CUE_START_OFFSET_MS, 0L) ?: 0L
 
     private fun Long.validOrZero(): Long =
         if (this == C.TIME_UNSET || this < 0L) 0L else this

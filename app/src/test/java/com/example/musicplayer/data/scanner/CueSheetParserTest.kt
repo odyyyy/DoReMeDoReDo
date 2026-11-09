@@ -79,4 +79,52 @@ class CueSheetParserTest {
             CueSheetParser.normalizeFileName("dir\\01 - Song.flac"),
         )
     }
+
+    @Test
+    fun `parses INDEX 01 start offsets into milliseconds`() {
+        val sheet = CueSheetParser.parse(
+            """
+            FILE "album.flac" WAVE
+              TRACK 01 AUDIO
+                TITLE "First"
+                INDEX 01 00:00:00
+              TRACK 02 AUDIO
+                TITLE "Second"
+                INDEX 01 03:20:00
+              TRACK 03 AUDIO
+                TITLE "Third"
+                INDEX 01 06:40:25
+            """.trimIndent(),
+        )
+
+        val tracks = sheet.files.single().tracks
+        assertEquals(listOf(0L, 200_000L, 400_333L), tracks.map { it.startOffsetMs })
+        assertEquals(listOf("First", "Second", "Third"), tracks.map { it.title })
+    }
+
+    @Test
+    fun `parseTimestampMs converts frames to milliseconds`() {
+        assertEquals(0L, CueSheetParser.parseTimestampMs("00:00:00"))
+        assertEquals(200_000L, CueSheetParser.parseTimestampMs("03:20:00"))
+        assertEquals(60_333L, CueSheetParser.parseTimestampMs("01:00:25"))
+        assertEquals(0L, CueSheetParser.parseTimestampMs("garbage"))
+        assertEquals(0L, CueSheetParser.parseTimestampMs("00:00"))
+    }
+
+    @Test
+    fun `captures sheet level title and performer for album identity`() {
+        val sheet = CueSheetParser.parse(
+            """
+            PERFORMER "Miles Davis"
+            TITLE "Kind of Blue"
+            FILE "album.flac" WAVE
+              TRACK 01 AUDIO
+                TITLE "So What"
+                INDEX 01 00:00:00
+            """.trimIndent(),
+        )
+
+        assertEquals("Kind of Blue", sheet.albumTitle)
+        assertEquals("Miles Davis", sheet.performer)
+    }
 }

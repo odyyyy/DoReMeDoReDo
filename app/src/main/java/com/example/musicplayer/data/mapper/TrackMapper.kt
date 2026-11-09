@@ -21,4 +21,5 @@ fun TrackEntity.toTrack(): Track = Track(
     artworkUri = artworkUri,
     dateAdded = dateAdded,
     fullArtworkUri = fullArtworkUri,
+    cueStartOffsetMs = cueStartOffsetMs,
 )

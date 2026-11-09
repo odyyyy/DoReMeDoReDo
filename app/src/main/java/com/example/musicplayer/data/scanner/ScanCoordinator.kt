@@ -186,7 +186,13 @@ class ScanCoordinator @Inject constructor(
                 !existing.fullArtworkScanned ||
                 !existing.orderScanned ||
                 !existing.isSameFile(size = file.size, modifiedAt = file.lastModified) ||
-                !existing.isSameCover(coverLastModified = file.artworkFileLastModified)
+                !existing.isSameCover(coverLastModified = file.artworkFileLastModified) ||
+                // CUE-described tracks are always re-read so the cue sheet's
+                // title/artist/album replace stale tags (e.g. Unknown Album)
+                // from a previous index of the same file.
+                file.cueTitle != null ||
+                file.cueAlbum != null ||
+                file.cueArtist != null
         }
 
         val results = if (needsExtraction.isEmpty()) {

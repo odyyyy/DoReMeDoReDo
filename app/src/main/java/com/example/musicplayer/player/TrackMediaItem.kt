@@ -1,9 +1,9 @@
 package com.example.musicplayer.player
 
 import android.os.Bundle
+import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
-import androidx.core.net.toUri
 import com.example.musicplayer.domain.model.Track
 
 /**
@@ -26,6 +26,15 @@ internal const val EXTRA_ALBUM_ID = "com.example.musicplayer.extra.ALBUM_ID"
 internal const val EXTRA_FULL_ARTWORK_URI = "com.example.musicplayer.extra.FULL_ARTWORK_URI"
 
 /**
+ * Key under which a CUE split track's start offset (ms within the shared audio
+ * file) travels with the media item.
+ *
+ * Playback seeks here when this item begins so the whole source file does not
+ * play from the start for every split track.
+ */
+internal const val EXTRA_CUE_START_OFFSET_MS = "com.example.musicplayer.extra.CUE_START_OFFSET_MS"
+
+/**
  * Converts a library track into a Media3 [MediaItem].
  *
  * The track's document URI is both the media URI and the stable media ID, so
@@ -36,6 +45,10 @@ internal const val EXTRA_FULL_ARTWORK_URI = "com.example.musicplayer.extra.FULL_
  * navigate back to the album the current track belongs to, and the
  * full-resolution cover URI is carried there too so Now Playing can draw a sharp
  * image while Media3 keeps the thumbnail for the notification.
+ *
+ * CUE split tracks carry a `#cue/<n>` fragment on their URI so each split track
+ * persists as a unique Room row. The fragment is dropped before playback so
+ * ExoPlayer opens the underlying audio file.
  */
 internal fun Track.toMediaItem(): MediaItem {
     val metadata = MediaMetadata.Builder()
@@ -50,12 +63,19 @@ internal fun Track.toMediaItem(): MediaItem {
         if (!fullArtworkUri.isNullOrBlank()) {
             putString(EXTRA_FULL_ARTWORK_URI, fullArtworkUri)
         }
+        putLong(EXTRA_CUE_START_OFFSET_MS, cueStartOffsetMs)
     }
     if (!extras.isEmpty()) metadata.setExtras(extras)
 
+    // CUE split tracks carry a `#cue/<n>` fragment for uniqueness; drop it so
+    // ExoPlayer opens the underlying audio file.
+    val mediaUri = uri.takeIf { it.contains('#') }
+        ?.substringBefore('#')
+        ?: uri
+
     return MediaItem.Builder()
         .setMediaId(uri)
-        .setUri(uri.toUri())
+        .setUri(mediaUri.toUri())
         .setMediaMetadata(metadata.build())
         .build()
 }

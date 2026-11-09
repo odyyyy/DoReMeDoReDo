@@ -212,7 +212,7 @@ private fun TrackOverflowMenu(
 
 /** Formats milliseconds as `m:ss` (or `h:mm:ss`), `--:--` when unknown. */
 internal fun formatDuration(durationMs: Long): String {
-    if (durationMs <= 0L) return "--:--"
+    if (durationMs <= 0L) return "0:00"
     val totalSeconds = durationMs / 1_000L
     val hours = totalSeconds / 3_600L
     val minutes = (totalSeconds % 3_600L) / 60L

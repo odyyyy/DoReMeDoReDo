@@ -7,10 +7,13 @@ import java.util.Locale
  *
  * @property number Track number declared by the sheet (1-based).
  * @property title Track title declared by the sheet, when present.
+ * @property startOffsetMs Start position of the track within the parent audio
+ *   file, in milliseconds, parsed from the sheet's `INDEX 01` entry.
  */
 data class CueTrack(
     val number: Int,
     val title: String? = null,
+    val startOffsetMs: Long = 0,
 )
 
 /**
@@ -104,6 +107,16 @@ object CueSheetParser {
                         }
                     }
                 }
+
+                "INDEX" -> {
+                    val parts = rest.split(WHITESPACE, limit = 2)
+                    if (parts.size == 2 && currentTrack != null) {
+                        val indexNumber = parts[0].uppercase(Locale.ROOT)
+                        if (indexNumber == "01") {
+                            currentTrack.startOffsetMs = parseTimestampMs(parts[1])
+                        }
+                    }
+                }
             }
         }
 
@@ -111,7 +124,9 @@ object CueSheetParser {
             files = files.map { file ->
                 CueFile(
                     fileName = file.fileName,
-                    tracks = file.tracks.map { track -> CueTrack(track.number, track.title) },
+                    tracks = file.tracks.map { track ->
+                CueTrack(track.number, track.title, track.startOffsetMs)
+            },
                 )
             },
             albumTitle = albumTitle,
@@ -151,11 +166,25 @@ object CueSheetParser {
 
     private val WHITESPACE = Regex("\\s+")
 
+    /**
+     * Parses a cue timestamp `MM:SS:FF` (frames are 1/75 of a second) into
+     * milliseconds. Returns `0` when the value is missing or malformed.
+     */
+    fun parseTimestampMs(timestamp: String): Long {
+        val parts = timestamp.split(":")
+        if (parts.size != 3) return 0
+        val minutes = parts[0].toIntOrNull() ?: 0
+        val seconds = parts[1].toIntOrNull() ?: 0
+        val frames = parts[2].toIntOrNull() ?: 0
+        return ((minutes.toLong() * 60 + seconds) * 1000) + (frames * 1000 / 75)
+    }
+
     private class MutableCueFile(val fileName: String) {
         val tracks = mutableListOf<MutableCueTrack>()
     }
 
     private class MutableCueTrack(val number: Int) {
         var title: String? = null
+        var startOffsetMs: Long = 0
     }
 }

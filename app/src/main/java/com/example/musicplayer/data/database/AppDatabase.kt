@@ -31,16 +31,21 @@ import androidx.room.RoomDatabase
  * next scan re-reads rows whose folder cover was replaced on disk, so changed
  * album covers appear in the library even when the audio files themselves are
  * untouched.
+ *
+ * Version 6 adds `TrackEntity.cueStartOffsetMs` (defaults to `0`) so playback of
+ * a track split from a single-file CUE sheet can seek to its start offset.
+ * Existing rows stay readable and play from the beginning until rescanned.
  */
 @Database(
     entities = [TrackEntity::class],
-    version = 5,
+    version = 6,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
         AutoMigration(from = 3, to = 4),
         AutoMigration(from = 4, to = 5),
+        AutoMigration(from = 5, to = 6),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {

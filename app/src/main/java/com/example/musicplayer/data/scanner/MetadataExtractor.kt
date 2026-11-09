@@ -70,10 +70,20 @@ class MetadataExtractor @Inject constructor(
         )
 
         return coroutineScope {
+            // CUE split tracks carry a `#cue/<n>` fragment so each split track
+            // persists as a unique Room row. Group by the base URI (fragment
+            // stripped) so split tracks sharing one source file are extracted
+            // together and can derive each other's durations.
+            val baseUri = { file: DiscoveredAudioFile ->
+                file.uri.toString().takeIf { it.contains('#') }?.substringBefore('#') ?: file.uri.toString()
+            }
+            val byUri = files.groupBy { baseUri(it) }
             files.map { file ->
+                val siblings = (byUri[baseUri(file)] ?: emptyList()).filter { it !== file }
                 async(dispatcher) {
                     extractBlocking(
                         file = file,
+                        cueSiblings = siblings,
                         createRetriever = { MediaMetadataRetriever() },
                         artworkCache = cache,
                     )
@@ -91,19 +101,23 @@ class MetadataExtractor @Inject constructor(
      */
     internal fun extractBlocking(
         file: DiscoveredAudioFile,
+        cueSiblings: List<DiscoveredAudioFile> = emptyList(),
         artworkCache: ArtworkVariantCache? = null,
         createRetriever: () -> MediaMetadataRetriever,
     ): MetadataResult {
         var retriever: MediaMetadataRetriever? = null
         return try {
             retriever = createRetriever()
-            retriever.setDataSource(context, file.uri)
+            // CUE split tracks carry a `#cue/<n>` fragment for row uniqueness;
+            // strip it so MediaMetadataRetriever opens the underlying file.
+            retriever.setDataSource(context, baseUriOf(file))
             MetadataResult.Success(
                 file = file,
                 metadata = readMetadata(
                     file = file,
                     retriever = retriever,
                     artworkCache = artworkCache,
+                    cueSiblings = cueSiblings,
                 ),
             )
         } catch (e: CancellationException) {
@@ -122,6 +136,10 @@ class MetadataExtractor @Inject constructor(
         }
     }
 
+    /** URI of the underlying audio file, with any CUE split fragment removed. */
+    private fun baseUriOf(file: DiscoveredAudioFile): Uri =
+        file.uri.buildUpon().fragment(null).build()
+
     /**
      * Blocking variant of [extractAll], exposed for tests.
      */
@@ -129,18 +147,24 @@ class MetadataExtractor @Inject constructor(
         files: List<DiscoveredAudioFile>,
         artworkCache: ArtworkVariantCache? = null,
         createRetriever: () -> MediaMetadataRetriever,
-    ): List<MetadataResult> = files.map { file ->
-        extractBlocking(
-            file = file,
-            artworkCache = artworkCache,
-            createRetriever = createRetriever,
-        )
+    ): List<MetadataResult> {
+        val byUri = files.groupBy { baseUriOf(it).toString() }
+        return files.map { file ->
+            val siblings = (byUri[baseUriOf(file).toString()] ?: emptyList()).filter { it !== file }
+            extractBlocking(
+                file = file,
+                cueSiblings = siblings,
+                artworkCache = artworkCache,
+                createRetriever = createRetriever,
+            )
+        }
     }
 
     private fun readMetadata(
         file: DiscoveredAudioFile,
         retriever: MediaMetadataRetriever,
         artworkCache: ArtworkVariantCache?,
+        cueSiblings: List<DiscoveredAudioFile>,
     ): TrackMetadata {
         val rawTitle = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
         val rawArtist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
@@ -157,12 +181,43 @@ class MetadataExtractor @Inject constructor(
             file = file,
             artworkCache = artworkCache,
         )
+
+        // A cue sheet is the authoritative source for a track's identity when
+        // the audio file's own tags are missing. Prefer the cue's title,
+        // artist and album for cue-described tracks; fall back to the file's
+        // tags otherwise. A single-file cue sheet (several cue tracks sharing
+        // one audio file) additionally derives each track's duration from the
+        // gap to the next cue track.
+        val isCueDescribed = file.cueTitle != null ||
+            file.cueAlbum != null ||
+            file.cueArtist != null ||
+            cueSiblings.isNotEmpty()
+        val title = if (isCueDescribed) {
+            file.cueTitle?.takeIf { it.isNotBlank() } ?: resolveTitle(rawTitle, file.name)
+        } else {
+            resolveTitle(rawTitle, file.name)
+        }
+        val resolvedArtist = if (isCueDescribed) {
+            file.cueArtist?.takeIf { it.isNotBlank() } ?: rawArtist
+        } else {
+            rawArtist
+        }
+        val resolvedAlbum = if (isCueDescribed) {
+            file.cueAlbum?.takeIf { it.isNotBlank() } ?: rawAlbum
+        } else {
+            rawAlbum
+        }
+        val durationMs = if (isCueDescribed && cueSiblings.isNotEmpty()) {
+            cueDurationMs(file, cueSiblings, parseDurationMs(rawDuration))
+        } else {
+            parseDurationMs(rawDuration)
+        }
         return buildMetadata(
             fileName = file.name,
-            rawTitle = rawTitle,
-            rawArtist = rawArtist,
-            rawAlbum = rawAlbum,
-            rawDuration = rawDuration,
+            rawTitle = title,
+            rawArtist = resolvedArtist,
+            rawAlbum = resolvedAlbum,
+            rawDuration = durationMs.toString(),
             rawTrackNumber = rawTrackNumber,
             rawDiscNumber = rawDiscNumber,
             cueTrackNumber = file.cueTrackNumber,
@@ -634,6 +689,26 @@ class MetadataExtractor @Inject constructor(
             output.toByteArray().takeIf { it.isNotEmpty() && it.size <= maxBytes }
         }
     }
+}
+
+/**
+ * Computes the duration of a cue-split track from its start offset and the
+ * start offsets of its siblings sharing the same audio file. The last track
+ * runs to the end of the file.
+ */
+internal fun cueDurationMs(
+    file: DiscoveredAudioFile,
+    siblings: List<DiscoveredAudioFile>,
+    fileDurationMs: Long,
+): Long {
+    val all = (siblings + listOf(file)).sortedBy { it.cueStartOffsetMs }
+    val myIndex = all.indexOfFirst { it.uri == file.uri }
+    if (myIndex < 0 || all.size < 2) return fileDurationMs.coerceAtLeast(0)
+
+    val nextStart = if (myIndex + 1 < all.size) all[myIndex + 1].cueStartOffsetMs else null
+    val start = file.cueStartOffsetMs.coerceAtLeast(0L).coerceAtMost(fileDurationMs)
+    val end = nextStart ?: fileDurationMs
+    return (end - start).coerceAtLeast(0L)
 }
 
 /**

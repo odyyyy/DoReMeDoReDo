@@ -44,6 +44,7 @@ fun DiscoveredAudioFile.toTrackEntity(
     albumId = metadata.albumId,
     artworkUri = artworkUri,
     fullArtworkUri = fullArtworkUri,
+    cueStartOffsetMs = cueStartOffsetMs,
     artworkScanned = artworkScanned,
     fullArtworkScanned = fullArtworkScanned,
     orderScanned = orderScanned,

@@ -22,6 +22,9 @@ package com.example.musicplayer.domain.model
  *   or `null` when unavailable.
  * @property dateAdded Timestamp (ms since epoch) when the track was first
  *   indexed; used for sorting.
+ * @property cueStartOffsetMs Start position within a single-file CUE source,
+ *   in milliseconds, or `0` when the track is not a CUE split. Playback seeks
+ *   here when this track begins.
  */
 data class Track(
     val uri: String,
@@ -35,4 +38,5 @@ data class Track(
     val artworkUri: String?,
     val dateAdded: Long,
     val fullArtworkUri: String? = null,
+    val cueStartOffsetMs: Long = 0,
 )

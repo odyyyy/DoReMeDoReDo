@@ -24,7 +24,7 @@ class AudioFormatTest {
 
     @Test
     fun formatDuration_formatsCorrectlyWithoutStringFormat() {
-        assertEquals("--:--", formatDuration(0L))
+        assertEquals("0:00", formatDuration(0L))
         assertEquals("3:00", formatDuration(180_000L))
         assertEquals("1:05", formatDuration(65_000L))
         assertEquals("1:01:05", formatDuration(3_665_000L))
