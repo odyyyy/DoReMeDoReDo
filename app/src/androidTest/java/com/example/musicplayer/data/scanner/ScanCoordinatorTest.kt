@@ -442,6 +442,74 @@ class ScanCoordinatorTest {
     }
 
     @Test
+    fun missingArtworkFile_isReReadAndRegenerated() = runBlocking {
+        // A restored database can reference artwork whose file is gone: the
+        // artwork directory is excluded from auto backup while Room is not.
+        // The row otherwise looks unchanged, so the missing image is the only
+        // reason to re-read it.
+        dao.upsert(
+            TrackEntity(
+                uri = "$ROOT/a.mp3",
+                title = "a",
+                artist = "Artist",
+                album = "Album",
+                durationMs = 210_000L,
+                albumId = "album-key",
+                artworkUri = "file:///artwork/gone.jpg",
+                fullArtworkUri = "file:///artwork/gone-full.jpg",
+                artworkScanned = true,
+                fullArtworkScanned = true,
+                orderScanned = true,
+                folderUri = PARENT,
+                fileSize = 1_024L,
+                lastModified = 1_700_000_000_000L,
+                dateAdded = 1L,
+            ),
+        )
+        val artwork = byteArrayOf(3, 1, 4)
+        metadata.artwork = mapOf("a.mp3" to artwork)
+        val store = FakeArtworkStore()
+        val coordinator = coordinator(FakeDiscovery(success(file("a.mp3"))), artworkStore = store)
+
+        coordinator.scanFolder(FOLDER)
+
+        val row = dao.getAll().single()
+        assertEquals("a missing cover must force a re-read", 1, metadata.reads)
+        assertNotNull(row.artworkUri)
+        assertNotEquals("file:///artwork/gone.jpg", row.artworkUri)
+        assertTrue(store.stored.containsKey(row.artworkUri))
+        assertEquals("the first-indexed time must survive the repair", 1L, row.dateAdded)
+    }
+
+    @Test
+    fun storedArtworkFile_unchangedTrackIsNotReread() = runBlocking {
+        metadata.artwork = mapOf("a.mp3" to byteArrayOf(1))
+        val store = FakeArtworkStore()
+        val discovery = FakeDiscovery(success(file("a.mp3")))
+        val coordinator = coordinator(discovery, artworkStore = store)
+        coordinator.scanFolder(FOLDER)
+        metadata.reads = 0
+
+        coordinator.scanFolder(FOLDER)
+
+        assertEquals("a present artwork file must not force a re-read", 0, metadata.reads)
+    }
+
+    @Test
+    fun hasMissingArtwork_tracksTheStoredFiles() = runBlocking {
+        metadata.artwork = mapOf("a.mp3" to byteArrayOf(2))
+        val store = FakeArtworkStore()
+        val coordinator = coordinator(FakeDiscovery(success(file("a.mp3"))), artworkStore = store)
+        assertFalse(coordinator.hasMissingArtwork())
+
+        coordinator.scanFolder(FOLDER)
+        assertFalse(coordinator.hasMissingArtwork())
+
+        store.stored.clear()
+        assertTrue(coordinator.hasMissingArtwork())
+    }
+
+    @Test
     fun folderCoverStamp_isPersistedAndACoverChangeTriggersReread() = runBlocking {
         val discovery = FakeDiscovery(success(file("a.mp3", coverModified = 100L)))
         val coordinator = coordinator(discovery)
@@ -609,6 +677,8 @@ class ScanCoordinatorTest {
             stored[uri] = artworkBytes
             return uri
         }
+
+        override suspend fun isStored(artworkUri: String): Boolean = stored.containsKey(artworkUri)
 
         override suspend fun deleteUnreferenced(referencedArtworkUris: Collection<String>) {
             cleanups++

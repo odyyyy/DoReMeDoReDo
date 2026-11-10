@@ -19,12 +19,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.musicplayer.presentation.components.LoadingStatus
+import com.example.musicplayer.presentation.components.LocalArtworkRevision
 import com.example.musicplayer.presentation.folders.FolderSelectionContent
 
 /**
@@ -75,7 +77,14 @@ fun LibraryGate(
                     onChangeFolderClicked = selectFolder,
                 )
             } else {
-                content(state)
+                // Artwork references are content addressed, so a rescan can
+                // restore a missing image under the same URI. Bumping the
+                // revision when the scan lifecycle changes makes rows that
+                // already showed a placeholder retry the load.
+                val artworkRevision = remember(state.scanState) { Any() }
+                CompositionLocalProvider(LocalArtworkRevision provides artworkRevision) {
+                    content(state)
+                }
             }
         }
     }

@@ -44,8 +44,16 @@ class FileArtworkStore @Inject constructor(
         return withContext(ioDispatcher) { write(artworkBytes) }
     }
 
+    override suspend fun isStored(artworkUri: String): Boolean =
+        withContext(ioDispatcher) { isStoredBlocking(artworkUri) }
+
     override suspend fun deleteUnreferenced(referencedArtworkUris: Collection<String>) {
         withContext(ioDispatcher) { removeUnreferenced(referencedArtworkUris) }
+    }
+
+    private fun isStoredBlocking(artworkUri: String): Boolean {
+        val name = fileNameOf(artworkUri) ?: return false
+        return File(directory, name).isFile
     }
 
     private fun write(artworkBytes: ByteArray): String? {

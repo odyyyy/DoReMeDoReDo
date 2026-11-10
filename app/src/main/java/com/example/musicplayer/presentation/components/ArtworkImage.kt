@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -17,6 +18,16 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import java.net.URLDecoder
+
+/**
+ * Token that changes whenever the library was rescanned and its stored artwork
+ * may have been rewritten.
+ *
+ * Artwork references are content addressed, so a regenerated image can reappear
+ * under exactly the same URI. Without a token, a row that already latched a load
+ * failure would keep showing the placeholder even though the file exists again.
+ */
+val LocalArtworkRevision = compositionLocalOf<Any?> { null }
 
 /**
  * Artwork for one track or album: the cached image cover from the artwork pipeline,
@@ -33,10 +44,13 @@ fun ArtworkImage(
 ) {
     val shape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
     val backgroundColor = MaterialTheme.colorScheme.surfaceContainerHigh
+    val artworkRevision = LocalArtworkRevision.current
 
     // A corrupt or missing artwork file must fall back to the neutral tile
-    // instead of leaving an empty square.
-    var failed by remember(artworkUri) { mutableStateOf(false) }
+    // instead of leaving an empty square. The failure is also keyed on the
+    // artwork revision, so a rescan that restores a file under the same URI
+    // gets a fresh load attempt.
+    var failed by remember(artworkUri, artworkRevision) { mutableStateOf(false) }
 
     if (artworkUri.isNullOrBlank() || failed) {
         ArtworkTile(

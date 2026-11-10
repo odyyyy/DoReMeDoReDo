@@ -1282,6 +1282,68 @@ Split audio files described by a single-file CUE sheet (one audio file with mult
 
 ---
 
+## Task 26 — Self-heal artwork files missing after a backup restore
+
+**Status:** DONE  
+**Priority:** High  
+**Depends on:** Tasks 8, 18, 22
+
+### Goal
+
+Stop covers from staying blank when the Room database is restored without the
+artwork directory. The database is included in Android auto backup, while
+`noBackupFilesDir/artwork` is not, so a restore (or an app-data cleanup) leaves
+every row pointing at a `file://` image that no longer exists. Scans previously
+skipped those rows because `artworkScanned`/`fullArtworkScanned` were already
+true and the audio file stamps were unchanged.
+
+### Work
+
+- [x] `ArtworkStore` gained `isStored(artworkUri)`, implemented by
+      `FileArtworkStore` via the content-addressed file name plus `File.isFile`.
+- [x] `ScanCoordinator.reconcile` collects the referenced artwork URIs once and
+      re-reads any row whose stored image is missing, so the cover is
+      regenerated from the source file even when the audio file is unchanged.
+- [x] `ScanCoordinator.hasMissingArtwork()` reports whether the indexed library
+      references artwork that is not on disk (runs on the IO dispatcher).
+- [x] `ScanMusicFolderUseCase.hasMissingArtwork()` exposes that check to the
+      presentation layer.
+- [x] `LibraryViewModel.render` checks once per process when a completed scan is
+      loaded and automatically runs the incremental scan if artwork is missing,
+      instead of showing placeholders until the user finds Rescan.
+- [x] `ArtworkImage` keys its failed-load latch on `LocalArtworkRevision`, which
+      `LibraryGate` bumps whenever `scanState` changes, so a row that already
+      latched a failure retries the same content-addressed URI after a scan
+      restores the file — no app restart required.
+
+### Acceptance criteria
+
+- A restored database whose artwork files are gone regenerates the covers on
+  the next launch without a manual Rescan.
+- Unchanged, healthy artwork files are not re-read on every scan.
+- A row that previously failed to load retries after a scan completes.
+- Existing scan tests and the debug build succeed.
+
+### Validation performed
+
+- `./gradlew :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:assembleDebug` -> BUILD SUCCESSFUL.
+- New tests: `missingArtworkFile_isReReadAndRegenerated`,
+  `storedArtworkFile_unchangedTrackIsNotReread`,
+  `hasMissingArtwork_tracksTheStoredFiles`, and
+  `isStored_reportsStoredMissingAndForeignUris`.
+- On the connected Infinix X6850: DB had 356 tracks / 64 distinct artwork
+  references but only 62 files after deleting two referenced thumbnails.
+  Force-stopping and relaunching the app regenerated both files automatically.
+  Final state: 64 references / 64 files, no missing and no unreferenced images,
+  and the Tracks screen showed all covers.
+
+### Known limitation
+
+- The automatic repair runs at most once per app process. If artwork disappears
+  while the app is already running, the user must Rescan or restart.
+
+---
+
 ## Execution rules
 
 1. Execute tasks in order unless a dependency requires a documented adjustment.

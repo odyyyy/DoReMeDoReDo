@@ -160,6 +160,14 @@ class LibraryViewModel @Inject constructor(
 
     private var tracksJob: Job? = null
 
+    /**
+     * Whether this process has already checked the library for artwork files
+     * that disappeared (for example after a backup restore). Checked once so a
+     * missing image that cannot be regenerated does not trigger a scan on every
+     * library re-render.
+     */
+    private var artworkRepairChecked = false
+
     init {
         observeLibrary()
         observeTracks()
@@ -303,6 +311,18 @@ class LibraryViewModel @Inject constructor(
                 scanState = ScanState.Idle,
                 lastScanResult = null,
             )
+            // Artwork is stored in app-private space that auto backup excludes,
+            // while the database itself is backed up. A restore therefore leaves
+            // rows pointing at images that are gone. Detect that once per
+            // process and run the incremental scan, which only re-reads the
+            // affected tracks, instead of showing placeholders until the user
+            // finds Rescan.
+            if (!artworkRepairChecked) {
+                artworkRepairChecked = true
+                if (scanMusicFolderUseCase.hasMissingArtwork()) {
+                    startScan(folder)
+                }
+            }
             return
         }
 

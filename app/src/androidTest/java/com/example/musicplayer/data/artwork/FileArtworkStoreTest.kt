@@ -70,6 +70,18 @@ class FileArtworkStoreTest {
     }
 
     @Test
+    fun isStored_reportsStoredMissingAndForeignUris() = runBlocking {
+        val uri = requireNotNull(store.store(byteArrayOf(1, 2, 3)))
+        assertTrue(store.isStored(uri))
+
+        assertTrue(fileOf(uri).delete())
+        assertFalse("a deleted image must not count as stored", store.isStored(uri))
+
+        assertFalse(store.isStored("content://media/external/audio/albumart/1"))
+        assertFalse(store.isStored("file:///artwork/missing.jpg"))
+    }
+
+    @Test
     fun deleteUnreferenced_removesOnlyUnreferencedFiles() = runBlocking {
         val keep = store.store(byteArrayOf(1))
         val drop = store.store(byteArrayOf(2))

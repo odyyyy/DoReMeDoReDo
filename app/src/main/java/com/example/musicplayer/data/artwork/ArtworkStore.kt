@@ -26,6 +26,15 @@ interface ArtworkStore {
     suspend fun store(artworkBytes: ByteArray): String?
 
     /**
+     * True when [artworkUri] still points at an image this store wrote.
+     *
+     * A URI that is foreign (not a stored file URI) or whose file has been
+     * deleted resolves to `false`, so the caller can decide to regenerate the
+     * image from its source file.
+     */
+    suspend fun isStored(artworkUri: String): Boolean
+
+    /**
      * Deletes every stored image that is not referenced by
      * [referencedArtworkUris].
      *

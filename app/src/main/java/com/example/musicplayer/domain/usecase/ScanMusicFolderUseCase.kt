@@ -30,4 +30,12 @@ class ScanMusicFolderUseCase @Inject constructor(
      */
     suspend operator fun invoke(folderUri: Uri): ScanOutcome =
         scanCoordinator.scanFolder(folderUri)
+
+    /**
+     * True when the indexed library points at artwork files that are no longer
+     * stored, for example when a backup restore brought back the database but
+     * not the excluded artwork directory. Running the scan then regenerates the
+     * covers.
+     */
+    suspend fun hasMissingArtwork(): Boolean = scanCoordinator.hasMissingArtwork()
 }
